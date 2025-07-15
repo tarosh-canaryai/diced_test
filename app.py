@@ -9,7 +9,7 @@ import re
 # API Key handling for deployment
 # It's best practice to retrieve API keys from Streamlit secrets
 # when deploying. This ensures your key is not hardcoded in your public repository.
-API_KEY = st.secrets.get("GEMINI_API_KEY")
+API_KEY = st.secrets.get("API_KEY")
 
 if API_KEY:
     try:
