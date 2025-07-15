@@ -6,6 +6,9 @@ import io
 import json
 import re
 
+# API Key handling for deployment
+# It's best practice to retrieve API keys from Streamlit secrets
+# when deploying. This ensures your key is not hardcoded in your public repository.
 API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 if API_KEY:
@@ -13,10 +16,10 @@ if API_KEY:
         genai.configure(api_key=API_KEY)
         model = genai.GenerativeModel('gemini-2.0-flash')
     except Exception as e:
-        st.error(f"Error configuring Gemini API: {e}. Please check your API key.")
+        st.error(f"Error configuring Gemini API: {e}. Please check your API key in Streamlit secrets.")
         model = None
 else:
-    st.error("Gemini API Key not found. Please set the 'GEMINI_API_KEY' in your Streamlit secrets or directly in the script.")
+    st.error("Gemini API Key not found. Please set the 'GEMINI_API_KEY' in your Streamlit secrets.")
     model = None
 
 RISK_FRAMEWORK_PROMPT = """
