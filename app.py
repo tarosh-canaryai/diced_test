@@ -76,6 +76,7 @@ if page == "Risk Analyzer":
                 manual_data['Score'] = st.number_input("Score (0-100)", min_value=0, max_value=100, value=75, key="manual_score")
                 manual_data['GYR'] = st.selectbox("GYR (Green/Yellow/Red)", ('GREEN', 'YELLOW', 'RED'), key="manual_gyr")
                 manual_data['Conscientious'] = st.number_input("Conscientious (0-100)", min_value=0, max_value=100, value=75, key="manual_conscientious")
+                manual_data['Anchor Cherry Picking'] = st.number_input("Anchor Cherry Picking (0-100)", min_value=0, max_value=100, value=50, key="manual_anchor_cherry_picking")
 
             with manual_col2:
                 manual_data['Achievement'] = st.number_input("Achievement (0-100)", min_value=0, max_value=100, value=75, key="manual_achievement")
@@ -86,7 +87,6 @@ if page == "Risk Analyzer":
                 manual_data['Work Ethic/Duty'] = st.number_input("Work Ethic/Duty (0-100)", min_value=0, max_value=100, value=75, key="manual_work_ethic")
                 manual_data['Withholding'] = st.number_input("Withholding (0-100)", min_value=0, max_value=100, value=50, key="manual_withholding")
                 manual_data['Manipulative'] = st.number_input("Manipulative (0-100)", min_value=0, max_value=100, value=50, key="manual_manipulative")
-                manual_data['Anchor Cherry Picking'] = st.number_input("Anchor Cherry Picking (0-100)", min_value=0, max_value=100, value=50, key="manual_anchor_cherry_picking")
 
 
             df = pd.DataFrame([manual_data])
