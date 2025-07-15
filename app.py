@@ -9,12 +9,12 @@ from utils import RISK_FRAMEWORK_PROMPT_AI, RISK_FRAMEWORK_DISPLAY_PROMPT
 
 # API Key handling for deployment
 # Ensure your Streamlit Cloud secret is named 'GEMINI_API_KEY'
-API_KEY = st.secrets.get("GEMINI_API_KEY")
+API_KEY = st.secrets.get("API_KEY")
 
 if API_KEY:
     try:
         genai.configure(api_key=API_KEY)
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        model = genai.GenerativeModel('gemini-2.5-flash')
     except Exception as e:
         st.error(f"Error configuring Gemini API: {e}. Please check your API key in Streamlit secrets.")
         model = None
