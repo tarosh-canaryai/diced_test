@@ -26,8 +26,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("Unified Strategic Employee Risk Framework (Version 12.0)")
-st.write("Analyze employee risk profiles using the predefined framework and Google Gemini.")
+st.title("Unified Strategic Employee Risk Framework ")
+st.write("Analyze employee risk profiles using the predefined framework")
 
 # Add navigation to the sidebar
 st.sidebar.header("Navigation")
