@@ -1,4 +1,4 @@
-RISK_FRAMEWORK_PROMPT = """
+RISK_FRAMEWORK_PROMPT_AI = """
 The Unified Strategic Employee Risk Framework
 
 Rule #1: The Critical Integrity Risk
@@ -89,4 +89,74 @@ Example of expected JSON output for an employee without a 'Name' column (using r
     "Predicted Outcome": "Active (Stable)",
     "Data-Driven Timeline": "> 18 Months"
 }}
+"""
+
+RISK_FRAMEWORK_DISPLAY_PROMPT = """
+**Understanding Employee Risk Profiles**
+
+This framework categorizes employees based on key indicators to predict potential risks and their impact on tenure.
+
+---
+
+### **Rule #1: The Critical Integrity Risk**
+* **Risk Level:** SUPER CRITICAL
+* **Description:** This employee exhibits behaviors that represent a fundamental mismatch with core professional ethics. The issue is not one of skill or performance but of character and conduct. They are considered a significant liability, and their departure is predicted to be swift and involuntary due to non-negotiable behaviors like misconduct, job abandonment, or severe performance issues rooted in a lack of duty.
+* **Predicted Outcome:** Involuntary (Misconduct, Abandoned Job, No-show, Performance)
+* **Data-Driven Timeline:** 0-6 Months
+
+---
+
+### **Rule #2: The Volatile High-Performer**
+* **Risk Level:** CRITICAL
+* **Description:** This is the "brilliant jerk" or "high-maintenance superstar." They are exceptionally talented and deliver outstanding results, but they create organizational friction, challenge authority, and can be difficult to manage. Their high performance often makes them aware of their value, and they are a flight risk if they feel constrained, unappreciated, or receive a better offer.
+* **Predicted Outcome:** Voluntary (Resignation)
+* **Data-Driven Timeline:** 3-9 Months
+
+---
+
+### **Rule #3: The Dissonant Performer**
+* **Risk Level:** CRITICAL
+* **Description:** This is a valuable employee who is clearly struggling. They are proven performers, but their current RED status indicates a significant problem—perhaps burnout, frustration with a project, or a poor relationship with their team or manager. They are at a crossroads, and without intervention, they are likely to either leave voluntarily or have their performance decline until it becomes an involuntary issue.
+* **Predicted Outcome:** Involuntary (Performance) or Voluntary (Resignation)
+* **Data-Driven Timeline:** 4-12 Months
+
+---
+
+### **Rule #4: The High-Value Flight Risk**
+* **Risk Level:** CRITICAL
+* **Description:** This employee is a "silent flight risk." They are a top performer, not causing any trouble, and appear stable from the outside. However, they are mentally disengaged and holding back discretionary effort, likely while searching for their next opportunity. Because they are not a "problem," their risk is often overlooked until their resignation is submitted.
+* **Predicted Outcome:** Voluntary (Resignation)
+* **Data-Driven Timeline:** 6-12 Months
+
+---
+
+### **Rule #5: The Direct Under-Performer**
+* **Risk Level:** HIGH
+* **Description:** This employee is simply not meeting the basic expectations of the role. The issue is a clear and direct lack of performance and results, with little ambiguity. They are typically identified quickly and managed out through a formal performance improvement plan or direct termination.
+* **Predicted Outcome:** Involuntary (Performance)
+* **Data-Driven Timeline:** 0-6 Months
+
+---
+
+### **Rule #6: The Complacent Contributor**
+* **Risk Level:** MEDIUM
+* **Description:** This employee is "coasting." They are not a problem employee and fly under the radar, but they are not striving, growing, or fully engaged. They represent a slow leak of potential and are at risk of leaving for a more compelling role or being selected for a reorganization because they are not seen as essential.
+* **Predicted Outcome:** Voluntary (Stagnation) or Involuntary (Reorganization)
+* **Data-Driven Timeline:** 9-18 Months
+
+---
+
+### **Rule #7: The Ideal Core Employee**
+* **Risk Level:** LOW
+* **Description:** This is the organizational bedrock. They are high-performing, highly engaged, trustworthy, and aligned with the company's goals and culture. They are the model employees you can build a team around and should be the focus of long-term retention and development efforts.
+* **Predicted Outcome:** Active (Stable)
+* **Data-Driven Timeline:** > 18 Months
+
+---
+
+### **Rule #8: The Stable Employee (Gray Zone)**
+* **Risk Level:** LOW
+* **Description:** This employee is the default category. They do not exhibit any of the strong risk signals from the profiles above, but they also do not meet the elite criteria of an "Ideal Core Employee." They are considered generally stable and are not an immediate flight or performance risk.
+* **Predicted Outcome:** Active (Stable)
+* **Data-Driven Timeline:** > 18 Months
 """
