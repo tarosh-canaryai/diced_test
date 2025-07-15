@@ -5,9 +5,11 @@ import os
 import io
 import json
 import re
+from utils import RISK_FRAMEWORK_PROMPT_AI, RISK_FRAMEWORK_DISPLAY_PROMPT
 
 # API Key handling for deployment
-API_KEY = st.secrets.get("API_KEY")
+# Ensure your Streamlit Cloud secret is named 'GEMINI_API_KEY'
+API_KEY = st.secrets.get("GEMINI_API_KEY")
 
 if API_KEY:
     try:
@@ -26,8 +28,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-st.title("Unified Strategic Employee Risk Framework ")
-st.write("Analyze employee risk profiles using the predefined framework")
+st.title("Unified Strategic Employee Risk Framework")
+st.write("Analyze employee risk profiles using the predefined framework.")
 
 # Add navigation to the sidebar
 st.sidebar.header("Navigation")
@@ -68,21 +70,22 @@ if page == "Risk Analyzer":
             name_input = st.text_input("Employee Name (optional)", "", key="manual_name_input")
             manual_data['Name'] = name_input
 
-            manual_col1, manual_col2 = st.columns(2)
+            manual_col1, manual_col2, manual_col3 = st.columns(3) # Arranged into 3 columns
 
             with manual_col1:
                 manual_data['Score'] = st.number_input("Score (0-100)", min_value=0, max_value=100, value=75, key="manual_score")
-                manual_data['Integrity'] = st.number_input("Integrity (0-100)", min_value=0, max_value=100, value=75, key="manual_integrity")
-                manual_data['Achievement'] = st.number_input("Achievement (0-100)", min_value=0, max_value=100, value=75, key="manual_achievement")
+                manual_data['GYR'] = st.selectbox("GYR (Green/Yellow/Red)", ('GREEN', 'YELLOW', 'RED'), key="manual_gyr")
                 manual_data['Conscientious'] = st.number_input("Conscientious (0-100)", min_value=0, max_value=100, value=75, key="manual_conscientious")
 
-
             with manual_col2:
-                manual_data['GYR'] = st.selectbox("GYR (Green/Yellow/Red)", ('GREEN', 'YELLOW', 'RED'), key="manual_gyr")
+                manual_data['Achievement'] = st.number_input("Achievement (0-100)", min_value=0, max_value=100, value=75, key="manual_achievement")
+                manual_data['Organized'] = st.number_input("Organized (0-100)", min_value=0, max_value=100, value=75, key="manual_organized")
+                manual_data['Integrity'] = st.number_input("Integrity (0-100)", min_value=0, max_value=100, value=75, key="manual_integrity")
+            
+            with manual_col3:
                 manual_data['Work Ethic/Duty'] = st.number_input("Work Ethic/Duty (0-100)", min_value=0, max_value=100, value=75, key="manual_work_ethic")
                 manual_data['Withholding'] = st.number_input("Withholding (0-100)", min_value=0, max_value=100, value=50, key="manual_withholding")
                 manual_data['Manipulative'] = st.number_input("Manipulative (0-100)", min_value=0, max_value=100, value=50, key="manual_manipulative")
-                manual_data['Organized'] = st.number_input("Organized (0-100)", min_value=0, max_value=100, value=75, key="manual_organized")
                 manual_data['Anchor Cherry Picking'] = st.number_input("Anchor Cherry Picking (0-100)", min_value=0, max_value=100, value=50, key="manual_anchor_cherry_picking")
 
 
@@ -103,8 +106,6 @@ if page == "Risk Analyzer":
                 st.error(f"Error: The data is missing the following required columns for risk assessment: {', '.join(missing_columns)}")
                 st.info("Please ensure your data (uploaded file or manual entry) has all the necessary columns as specified.")
             else:
-                from utils import RISK_FRAMEWORK_PROMPT_AI # Import the AI prompt
-
                 if st.button("Analyze Employee Risk", key="analyze_button"):
                     if model is None:
                         st.error("Gemini API is not configured. Please ensure your API key is set correctly.")
@@ -223,9 +224,9 @@ if page == "Risk Analyzer":
                         else:
                             st.info("No analysis results to display.")
 
+                # Clear cache button moved to col2, only visible for manual input
                 if input_method == "Enter data manually" and 'cached_manual_results_df' in st.session_state and not st.session_state.cached_manual_results_df.empty:
-                    st.sidebar.markdown("---")
-                    if st.sidebar.button("Clear Cached Manual Results", key="clear_manual_cache"):
+                    if st.button("Clear Cached Manual Results", key="clear_manual_cache_button_main"):
                         st.session_state.cached_manual_results_df = pd.DataFrame(columns=[
                             'Name', 'Row Number', 'Risk Profile Name', 'Risk Level',
                             'Predicted Outcome', 'Data-Driven Timeline'
@@ -236,5 +237,4 @@ elif page == "View Risk Profiles":
     st.markdown("---")
     st.header("Understanding Employee Risk Profiles")
     st.write("This section describes each risk profile within the Unified Strategic Employee Risk Framework.")
-    from utils import RISK_FRAMEWORK_DISPLAY_PROMPT # Import the display prompt
     st.markdown(RISK_FRAMEWORK_DISPLAY_PROMPT)
