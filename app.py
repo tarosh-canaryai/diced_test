@@ -1,4 +1,24 @@
 import streamlit as st
+import pandas as pd
+import google.generativeai as genai
+import os
+import io
+import json
+import re
+
+# API Key handling for deployment
+API_KEY = st.secrets.get("API_KEY")
+
+if API_KEY:
+    try:
+        genai.configure(api_key=API_KEY)
+        model = genai.GenerativeModel('gemini-2.0-flash')
+    except Exception as e:
+        st.error(f"Error configuring Gemini API: {e}. Please check your API key in Streamlit secrets.")
+        model = None
+else:
+    st.error("Gemini API Key not found. Please set the 'GEMINI_API_KEY' in your Streamlit secrets.")
+    model = None
 
 st.set_page_config(
     page_title="Employee Risk Framework Analyzer",
@@ -11,7 +31,7 @@ st.write("Analyze employee risk profiles using the predefined framework and Goog
 
 # Add navigation to the sidebar
 st.sidebar.header("Navigation")
-page = st.sidebar.radio("Go to", ["Risk Analyzer", "View Prompt"])
+page = st.sidebar.radio("Go to", ["Risk Analyzer", "View Risk Profiles"])
 
 if page == "Risk Analyzer":
     st.markdown("---")
@@ -48,7 +68,7 @@ if page == "Risk Analyzer":
             name_input = st.text_input("Employee Name (optional)", "", key="manual_name_input")
             manual_data['Name'] = name_input
 
-            manual_col1, manual_col2 = st.columns(2) # Two columns for manual input
+            manual_col1, manual_col2 = st.columns(2)
 
             with manual_col1:
                 manual_data['Score'] = st.number_input("Score (0-100)", min_value=0, max_value=100, value=75, key="manual_score")
@@ -83,22 +103,7 @@ if page == "Risk Analyzer":
                 st.error(f"Error: The data is missing the following required columns for risk assessment: {', '.join(missing_columns)}")
                 st.info("Please ensure your data (uploaded file or manual entry) has all the necessary columns as specified.")
             else:
-                import google.generativeai as genai # Import here to avoid circular imports if `utils.py` uses st
-                
-                # API Key handling for deployment
-                API_KEY = st.secrets.get("GEMINI_API_KEY")
-
-                if API_KEY:
-                    try:
-                        genai.configure(api_key=API_KEY)
-                        model = genai.GenerativeModel('gemini-2.0-flash')
-                    except Exception as e:
-                        st.error(f"Error configuring Gemini API: {e}. Please check your API key in Streamlit secrets.")
-                        model = None
-                else:
-                    st.error("Gemini API Key not found. Please set the 'GEMINI_API_KEY' in your Streamlit secrets.")
-                    model = None
-
+                from utils import RISK_FRAMEWORK_PROMPT_AI # Import the AI prompt
 
                 if st.button("Analyze Employee Risk", key="analyze_button"):
                     if model is None:
@@ -120,20 +125,18 @@ if page == "Risk Analyzer":
                         results_container = st.container()
                         results_placeholder = results_container.dataframe(results_df, height=300)
 
-                        from utils import RISK_FRAMEWORK_PROMPT # Import the prompt from utils.py
-
                         with st.spinner("Analyzing employee data... This might take a while for large files."):
                             for index, row in df.iterrows():
                                 employee_data = row.to_dict()
-                                current_row_number = index + 1 if input_method == "Upload a file" else len(results_df) + 1 # Dynamic row number for manual entry
-                                employee_name_for_prompt = employee_data.get('Name', '') 
+                                current_row_number = index + 1 if input_method == "Upload a file" else len(results_df) + 1
+                                employee_name_for_prompt = employee_data.get('Name', '')
 
                                 employee_data_string = "\n".join([f"{col_name}: '{col_value}'" for col_name, col_value in employee_data.items()])
 
                                 employee_prompt = f"""
                                 I need you to apply the provided Unified Strategic Employee Risk Framework (Version 12.0) to the following employee's data.
                                 Here is the framework:
-                                {RISK_FRAMEWORK_PROMPT}
+                                {RISK_FRAMEWORK_PROMPT_AI}
 
                                 Here is the employee's data:
                                 Row Number: {current_row_number}
@@ -221,16 +224,17 @@ if page == "Risk Analyzer":
                             st.info("No analysis results to display.")
 
                 if input_method == "Enter data manually" and 'cached_manual_results_df' in st.session_state and not st.session_state.cached_manual_results_df.empty:
-                    if st.button("Clear Cached Manual Results", key="clear_manual_cache"):
+                    st.sidebar.markdown("---")
+                    if st.sidebar.button("Clear Cached Manual Results", key="clear_manual_cache"):
                         st.session_state.cached_manual_results_df = pd.DataFrame(columns=[
                             'Name', 'Row Number', 'Risk Profile Name', 'Risk Level',
                             'Predicted Outcome', 'Data-Driven Timeline'
                         ])
                         st.rerun()
 
-elif page == "View Prompt":
+elif page == "View Risk Profiles":
     st.markdown("---")
-    st.header("The Underlying AI Prompt (Risk Framework)")
-    st.write("This is the detailed framework and instructions provided to the Google Gemini model for risk analysis.")
-    from utils import RISK_FRAMEWORK_PROMPT # Import the prompt
-    st.text_area("Gemini AI Prompt", RISK_FRAMEWORK_PROMPT, height=700)
+    st.header("Understanding Employee Risk Profiles")
+    st.write("This section describes each risk profile within the Unified Strategic Employee Risk Framework.")
+    from utils import RISK_FRAMEWORK_DISPLAY_PROMPT # Import the display prompt
+    st.markdown(RISK_FRAMEWORK_DISPLAY_PROMPT)
