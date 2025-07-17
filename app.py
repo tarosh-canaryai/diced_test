@@ -281,7 +281,7 @@ with st.sidebar:
     
     is_new_turn_mode_active = (st.session_state.current_turn_index == len(st.session_state.history))
     if is_new_turn_mode_active:
-        st.markdown("➡️ **➕ New Turn (Active)**")
+        st.markdown("**➕ New Turn (Active)**")
     else:
         if st.button("➕ Start New Turn", key="start_new_turn_sidebar_button", on_click=create_new_turn_mode):
             pass
