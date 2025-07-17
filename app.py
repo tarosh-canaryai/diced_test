@@ -348,10 +348,10 @@ if st.session_state.current_turn_index < len(st.session_state.history):
     active_turn_data = st.session_state.history[st.session_state.current_turn_index]
     st.subheader(f"Viewing Turn {active_turn_data['turn_number']} Details")
     
-    st.markdown("**## User Prompt for this Turn:**")
+    st.markdown("## **User Prompt for this Turn:**")
     st.markdown(active_turn_data['user_prompt'])
 
-    st.markdown("**## Gemini's Raw Response for this Turn:**")
+    st.markdown("## **Gemini's Raw Response for this Turn:**")
     st.markdown(active_turn_data['gemini_response'])
 
     st.markdown(f"**Active Rows Processed in this turn:** Rows {active_turn_data['active_data_sent_start_index']} to {active_turn_data['active_data_sent_start_index'] + active_turn_data['active_data_sent_num_rows'] - 1} ({active_turn_data['active_data_sent_num_rows']} rows)")
