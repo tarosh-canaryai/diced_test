@@ -6,7 +6,7 @@ import uuid
 
 # --- Configuration ---
 # Use Streamlit secrets for API key
-API_KEY = st.secrets["GEMINI_API_KEY"]
+API_KEY = st.secrets["API_KEY"]
 
 try:
     if API_KEY:
