@@ -12,14 +12,14 @@ try:
     if API_KEY:
         genai.configure(api_key=API_KEY)
     else:
-        st.warning("Gemini API Key is empty. Set 'GEMINI_API_KEY' in Streamlit secrets for full functionality. API calls will fail.")
+        st.warning("Gemini API Key is empty. Set 'API_KEY' in Streamlit secrets for full functionality. API calls will fail.")
 except Exception as e:
     st.error(f"Error configuring Gemini API: {e}. Check your API key.")
 
 model = None
 if API_KEY:
     try:
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        model = genai.GenerativeModel('gemini-2.0-flash')
     except Exception as e:
         st.error(f"Failed to initialize Gemini model: {e}. Check your API key and network.")
 else:
