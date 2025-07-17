@@ -39,7 +39,21 @@ def initialize_session_state():
 
     if not st.session_state.history and st.session_state.current_turn_index == 0:
         st.session_state.current_gemini_response_display = ""
-        st.session_state.current_user_prompt_display = "Analyze the provided active and terminated customer data. Identify any patterns, key differences, or insights that could be useful for customer retention or win-back strategies. Focus on common attributes like tenure, last activity, or service usage if available. Provide a concise summary."
+        st.session_state.current_user_prompt_display = '''Analyze the provided active and terminated employee data.
+For active employees, create distinct 'character profiles' or segments. These profiles should describe common attributes such as:
+Tenure (length of employment if there is a termination date available otherwise duration signifies how long they have been working upto that point)
+personality scores 
+Any other relevant characteristics present in the data.
+
+For each active employee profile, predict their likelihood of voluntary termination and an expected timeline for departure. Categorize the timeline into the following ranges:
+0-3 months
+3-6 months
+6-12 months
+12+ months
+
+For terminated employees, analyze their characteristics (tenure at termination, role, etc.) and their termination_date (if available in the data) to identify patterns that contributed to their departure. Use these patterns to inform the predictions for active employees. If a termination_date column is present, prioritize it for understanding churn timing.
+
+Provide a concise summary of your findings, highlighting key characteristics of high-risk profiles and the most common churn timelines. Structure your output clearly, perhaps with a section for each active employee profile found. (dont give an individual summary for each person instead group into profiles that follow similar trends.'''
     elif 'current_gemini_response_display' not in st.session_state:
          st.session_state.current_gemini_response_display = ""
     elif 'current_user_prompt_display' not in st.session_state: 
