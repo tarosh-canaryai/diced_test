@@ -19,7 +19,7 @@ except Exception as e:
 model = None
 if API_KEY:
     try:
-        model = genai.GenerativeModel('gemini-1.5-pro')
+        model = genai.GenerativeModel('gemini-2.5-flash')
     except Exception as e:
         st.error(f"Failed to initialize Gemini model: {e}. Check your API key and network.")
 else:
