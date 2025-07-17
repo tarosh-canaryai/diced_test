@@ -372,7 +372,7 @@ with col3:
         "Number of Active rows to send in this batch:",
         min_value=0,
         max_value=active_rows_left,
-        value=int(st.session_state.active_rows_to_send_input_value or min(10, active_rows_left, 1 if active_rows_left > 0 else 0)),
+        value=int(st.session_state.active_rows_to_send_input_value or min(10, active_rows_left)),
         key=f"active_rows_input_{st.session_state.current_turn_index}" 
     )
 
@@ -382,7 +382,7 @@ with col4:
         "Number of Terminated rows to send in this batch:",
         min_value=0,
         max_value=terminated_rows_left,
-        value=int(st.session_state.terminated_rows_to_send_input_value or min(10, terminated_rows_left, 1 if terminated_rows_left > 0 else 0)),
+        value=int(st.session_state.terminated_rows_to_send_input_value or min(10, terminated_rows_left)),
         key=f"terminated_rows_input_{st.session_state.current_turn_index}" 
     )
 
