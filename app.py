@@ -1,428 +1,407 @@
 import streamlit as st
 import pandas as pd
+import io
+import os
 import google.generativeai as genai
-import textwrap
-import uuid
+import re
 
-# --- Configuration ---
-# Use Streamlit secrets for API key
-API_KEY = st.secrets["API_KEY"]
+st.set_page_config(layout="wide", page_title="Attrition & Hiring Risk Analyzer")
 
-try:
-    if API_KEY:
-        genai.configure(api_key=API_KEY)
-    else:
-        st.warning("Gemini API Key is empty. Set 'API_KEY' in Streamlit secrets for full functionality. API calls will fail.")
-except Exception as e:
-    st.error(f"Error configuring Gemini API: {e}. Check your API key.")
+st.title("Model Comparison UI")
 
-model = None
-if API_KEY:
+DECISION_TREE_RULEBOOK = """
+category 4: The Liability
+Risk Level: Critical
+Data Criteria: Score < 25 OR (GYR = RED AND Integrity < 40)
+Profile Description: An individual who is either fundamentally incapable of
+performing the job or possesses a critical character flaw that makes them an
+immediate liability.
+Actionable Insight: An unambiguous "Do Not Hire" signal. High probability
+(>90%) of involuntary termination within 0-3 months.
+category 3: The Deceiver
+Risk Level: High
+Data Criteria: GYR = RED AND (Withholding > 95 OR Manipulative > 90)
+Profile Description: A skilled but highly toxic individual who uses
+manipulation and information hoarding for personal gain. They are a severe
+threat to team morale, trust, and productivity.
+Actionable Insight: "Do Not Hire." The risk of poisoning team culture far
+outweighs their skills. High probability (>80%) of involuntary termination within 2-6
+months.
+category 2: The High-Risk Hire
+Risk Level: Elevated
+Data Criteria: (GYR = RED AND Work Ethic/Duty < 40) OR (GYR =
+GREEN/YELLOW AND Manipulative > 75 AND Score < 65) OR (GYR =
+GREEN AND Work Ethic/Duty < 50)
+Profile Description: Identifies three problematic types: the "Slacker"
+(chronically poor effort), the "Unskilled Schemer" (covers incompetence with
+politics), and the "Skilled, Apathetic Employee" (capable but lacks drive).
+Actionable Insight: "Avoid Hiring." A significant drain on management time
+with a high probability (~70%) of termination within 3-9 months.
+Default Rule: Any GYR=RED employee not meeting the criteria for Level 4 or
+3 is defaulted to this category.
+category 1: The Gamble
+Risk Level: Moderate
+Data Criteria: GYR = YELLOW, OR (GYR = GREEN AND Score <
+65), OR (GYR = GREEN AND Score >= 65 AND Manipulative > 75)
+Profile Description: Identifies the "Average/Underperformer" and the "Skilled
+but Political" hire. Their success is highly dependent on their direct manager
+and work environment.
+Actionable Insight: "Cautious Hire." A coin-toss with a ~50% long-term
+success rate. Viable for simple, well-supervised roles only.
+category 0b: The Superstar (Watchlist)
+Risk Level: Low (Initial), but Moderate Flight Risk
+Data Criteria: Meets all criteria for Level 0a AND (Score >= 88 AND
+Achievement >= 90)
+Profile Description: An exceptionally high-potential candidate who is also a
+significant flight risk if not properly engaged, challenged, or recognized.
+Actionable Insight: "Priority Hire, with a Proactive Retention Plan." The
+hiring manager must be notified of the flight risk. Requires a 90-day
+engagement plan.
+category 0a: The Cornerstone (Standard)
+Risk Level: Low
+Data Criteria: GYR = GREEN AND Score >= 65 AND Manipulative <=
+75 AND Work Ethic/Duty >= 50 (and does not meet L0b criteria).
+Profile Description: The target hiring profile. Demonstrates capability, a
+sound work ethic, and low behavioral risk.
+Actionable Insight: "Confident Hire." This is your priority candidate pool for
+stable, long-term success.
+"""
+
+if 'df_original' not in st.session_state:
+    st.session_state.df_original = None
+if 'df_modified' not in st.session_state:
+    st.session_state.df_modified = None
+if 'current_row_start_index' not in st.session_state:
+    st.session_state.current_row_start_index = 0
+if 'gemini_per_row_results' not in st.session_state:
+    st.session_state.gemini_per_row_results = []
+if 'gemini_overall_report' not in st.session_state:
+    st.session_state.gemini_overall_report = ""
+
+def get_gemini_model():
     try:
-        model = genai.GenerativeModel('gemini-2.0-flash')
+        api_key = st.secrets["GEMINI_API_KEY"]
+        genai.configure(api_key=api_key)
+        return genai.GenerativeModel("gemini-2.0-flash")
+    except KeyError:
+        st.error("Gemini API Key not found in Streamlit secrets. Please add it to your `secrets.toml` file.")
+        return None
     except Exception as e:
-        st.error(f"Failed to initialize Gemini model: {e}. Check your API key and network.")
-else:
-    st.info("Gemini model not initialized due to missing API key.")
+        st.error(f"Error configuring Gemini API: {e}. Please check your API key.")
+        return None
 
-def initialize_session_state():
-    if 'active_df' not in st.session_state:
-        st.session_state.active_df = None
-    if 'terminated_df' not in st.session_state:
-        st.session_state.terminated_df = None
-    
-    if 'history' not in st.session_state:
-        st.session_state.history = []
-    
-    if 'current_turn_index' not in st.session_state:
-        st.session_state.current_turn_index = 0 
+def process_csv_upload(uploaded_file):
+    if uploaded_file is not None:
+        try:
+            df = pd.read_csv(uploaded_file)
+            st.session_state.df_original = df.copy()
+            st.session_state.df_modified = df.copy()
+            st.session_state.current_row_start_index = 0
+            st.session_state.gemini_per_row_results = []
+            st.session_state.gemini_overall_report = ""
+            st.success("CSV file uploaded successfully!")
+            st.dataframe(st.session_state.df_modified.head())
+        except Exception as e:
+            st.error(f"Error reading CSV: {e}")
 
-    if not st.session_state.history and st.session_state.current_turn_index == 0:
-        st.session_state.current_gemini_response_display = ""
-        st.session_state.current_user_prompt_display = '''Analyze the provided active and terminated employee data.
-For active employees, create distinct 'character profiles' or segments. These profiles should describe common attributes such as:
-Tenure (length of employment if there is a termination date available otherwise duration signifies how long they have been working upto that point)
-personality scores 
-Any other relevant characteristics present in the data.
-
-For each active employee profile, predict their likelihood of voluntary termination and an expected timeline for departure. Categorize the timeline into the following ranges:
-0-3 months
-3-6 months
-6-12 months
-12+ months
-
-For terminated employees, analyze their characteristics (tenure at termination, role, etc.) and their termination_date (if available in the data) to identify patterns that contributed to their departure. Use these patterns to inform the predictions for active employees. If a termination_date column is present, prioritize it for understanding churn timing.
-
-Provide a concise summary of your findings, highlighting key characteristics of high-risk profiles and the most common churn timelines. Structure your output clearly, perhaps with a section for each active employee profile found. (dont give an individual summary for each person instead group into profiles that follow similar trends.'''
-    elif 'current_gemini_response_display' not in st.session_state:
-         st.session_state.current_gemini_response_display = ""
-    elif 'current_user_prompt_display' not in st.session_state: 
-         st.session_state.current_user_prompt_display = ""
-
-    if 'active_rows_to_send_input_value' not in st.session_state:
-        st.session_state.active_rows_to_send_input_value = 0
-    if 'terminated_rows_to_send_input_value' not in st.session_state:
-        st.session_state.terminated_rows_to_send_input_value = 0
-
-    if 'active_file_name' not in st.session_state:
-        st.session_state.active_file_name = None
-    if 'terminated_file_name' not in st.session_state:
-        st.session_state.terminated_file_name = None
-
-    if 'confirm_clear_visible' not in st.session_state:
-        st.session_state.confirm_clear_visible = False
-
-
-initialize_session_state()
-
-
-def format_dataframe_for_gemini(df, start_index, num_rows, title):
-    if df is None or num_rows <= 0:
-        return f"No {title} data provided for this batch."
-
+def get_rows_for_model(df, start_index, num_rows):
+    if df is None:
+        return pd.DataFrame()
     end_index = min(start_index + num_rows, len(df))
-    if start_index >= end_index:
-        return f"No more {title} data available for this batch starting from row {start_index}."
+    return df.iloc[start_index:end_index]
 
-    selected_rows = df.iloc[start_index:end_index]
-    formatted_string = f"--- {title} Data (Rows {start_index} to {end_index-1}) ---\n"
-    formatted_string += selected_rows.to_csv(index=False)
-    formatted_string += "\n----------------------------------------\n"
-    return formatted_string
+def annotate_dataframe(df, percentage, columns_to_annotate):
+    if df is None:
+        st.warning("No CSV loaded to annotate.")
+        return None
 
-def get_full_gemini_context_from_history():
-    context = []
-    
-    max_history_to_include = st.session_state.current_turn_index + 1
-    if st.session_state.current_turn_index == len(st.session_state.history): 
-        max_history_to_include = len(st.session_state.history)
-
-    for i in range(max_history_to_include):
-        turn = st.session_state.history[i]
-        context.append({'role': 'user', 'parts': turn['user_prompt']})
-        context.append({'role': 'model', 'parts': str(turn['user_edited_response'])})
-    return context
-
-def send_to_gemini_callback():
-    current_key_suffix = st.session_state.current_turn_index 
-
-    user_prompt_for_turn = st.session_state[f"user_prompt_input_widget_{current_key_suffix}"]
-    active_rows_for_turn = st.session_state[f"active_rows_input_{current_key_suffix}"]
-    terminated_rows_for_turn = st.session_state[f"terminated_rows_input_{current_key_suffix}"]
-
-    if model is None:
-        st.error("Gemini model not initialized. Cannot send request.")
-        return
-
-    if st.session_state.current_turn_index < len(st.session_state.history):
-        st.session_state.history[st.session_state.current_turn_index]['user_edited_response'] = \
-            st.session_state[f"gemini_output_editor_widget_{current_key_suffix}"]
-    
-    st.session_state.history = st.session_state.history[:st.session_state.current_turn_index + 1]
-
-    initial_active_rows_sent_count = 0
-    initial_terminated_rows_sent_count = 0
-    if st.session_state.history: 
-        initial_active_rows_sent_count = st.session_state.history[-1]['active_rows_at_turn_end']
-        initial_terminated_rows_sent_count = st.session_state.history[-1]['terminated_rows_at_turn_end']
-
-    active_data_str = format_dataframe_for_gemini(
-        st.session_state.active_df,
-        initial_active_rows_sent_count,
-        active_rows_for_turn,
-        "Active Customers"
-    )
-    terminated_data_str = format_dataframe_for_gemini(
-        st.session_state.terminated_df,
-        initial_terminated_rows_sent_count,
-        terminated_rows_for_turn,
-        "Terminated Customers"
-    )
-
-    current_turn_prompt_parts = []
-
-    if st.session_state.history: 
-        prev_edited_response = st.session_state.history[-1]['user_edited_response']
-        if prev_edited_response.strip():
-            current_turn_prompt_parts.append(
-                "--- User-Edited Previous Output ---\n" +
-                prev_edited_response.strip() +
-                "\n----------------------------------\n"
-            )
-            current_turn_prompt_parts.append("Considering the above context and your previous analysis, along with the *new data* provided below:")
-
-    if user_prompt_for_turn.strip():
-        if current_turn_prompt_parts:
-            current_turn_prompt_parts.append(f"\nUser's next instruction: {user_prompt_for_turn.strip()}\n")
+    df_copy = df.copy()
+    for col in columns_to_annotate:
+        if col in df_copy.columns and pd.api.types.is_numeric_dtype(df_copy[col]):
+            df_copy[col] = df_copy[col] * (1 + percentage / 100)
         else:
-            current_turn_prompt_parts.append(user_prompt_for_turn.strip())
+            st.warning(f"Column '{col}' is not numeric or does not exist. Skipping annotation for it.")
+    return df_copy
 
-    if active_data_str.strip() != "No Active data provided for this batch.":
-        current_turn_prompt_parts.append(active_data_str)
-    if terminated_data_str.strip() != "No Terminated data provided for this batch.":
-        current_turn_prompt_parts.append(terminated_data_str)
+@st.cache_data
+def convert_df_to_csv(df):
+    if df is None:
+        return ""
+    return df.to_csv(index=False).encode('utf-8')
 
-    if (active_data_str.strip() != "No Active data provided for this batch." and
-        terminated_data_str.strip() != "No Terminated data provided for this batch."):
-        if len(current_turn_prompt_parts) >= 2 and "--- User-Edited Previous Output ---" in current_turn_prompt_parts[0]: 
-             current_turn_prompt_parts.insert(-2, "\n--- Combined Data Set ---\n")
-        elif len(current_turn_prompt_parts) >= 2 and not st.session_state.history: 
-             current_turn_prompt_parts.insert(1, "\n--- Combined Data Set ---\n")
+def clear_gemini_results():
+    st.session_state.gemini_per_row_results = []
+    st.session_state.gemini_overall_report = ""
 
+st.header("Gemini API Key Status")
+try:
+    _ = st.secrets["GEMINI_API_KEY"]
+    st.success("Gemini API Key loaded successfully from Streamlit secrets.")
+except KeyError:
+    st.warning("Gemini API Key not found in Streamlit secrets. Please add it to your `secrets.toml` file to enable model functionality.")
 
-    final_prompt_string = "\n".join(current_turn_prompt_parts)
+st.header("Upload Your CSV Data")
+uploaded_file = st.file_uploader("Choose a CSV file", type="csv")
+if uploaded_file is not None and st.session_state.df_original is None:
+    process_csv_upload(uploaded_file)
+elif uploaded_file is not None and uploaded_file.name != getattr(st.session_state.get('last_uploaded_filename'), 'name', ''):
+    st.session_state.last_uploaded_filename = uploaded_file
+    process_csv_upload(uploaded_file)
 
-    gemini_output = None
-    try:
-        with st.spinner("Calling Gemini API..."):
-            full_context_for_gemini = get_full_gemini_context_from_history()
-            
-            chat_session = model.start_chat(history=full_context_for_gemini)
-            response = chat_session.send_message(final_prompt_string)
-            gemini_output = response.text
+if st.session_state.df_modified is not None:
+    st.subheader("Currently Loaded Data (first 5 rows):")
+    st.dataframe(st.session_state.df_modified.head())
 
-    except Exception as e:
-        st.error(f"Error calling Gemini API: {e}")
-        gemini_output = None
+    st.header("Select Rows for Model Processing")
+    max_rows = len(st.session_state.df_modified)
+    num_rows_to_send = st.number_input(
+        "Number of rows to send to model at a time (X):",
+        min_value=1,
+        max_value=max_rows if max_rows > 0 else 1,
+        value=min(10, max_rows) if max_rows > 0 else 1,
+        step=1
+    )
 
-    if gemini_output:
-        new_turn_entry = {
-            'turn_number': len(st.session_state.history) + 1,
-            'user_prompt': user_prompt_for_turn, 
-            'active_data_sent_start_index': initial_active_rows_sent_count,
-            'active_data_sent_num_rows': active_rows_for_turn,
-            'terminated_data_sent_start_index': initial_terminated_rows_sent_count,
-            'terminated_data_sent_num_rows': terminated_rows_for_turn,
-            'gemini_response': gemini_output,
-            'user_edited_response': gemini_output, 
-            'active_rows_at_turn_end': initial_active_rows_sent_count + active_rows_for_turn,
-            'terminated_rows_at_turn_end': initial_terminated_rows_sent_count + terminated_rows_for_turn,
-        }
-        st.session_state.history.append(new_turn_entry)
-
-        st.session_state.current_turn_index = len(st.session_state.history) - 1
-
-        st.session_state.current_gemini_response_display = gemini_output
-        st.session_state.current_user_prompt_display = new_turn_entry['user_prompt'] 
-
-        st.session_state.active_rows_to_send_input_value = 0
-        st.session_state.terminated_rows_to_send_input_value = 0
-
-    else:
-        st.error("Failed to get a response from Gemini.")
-
-def reset_application_logic():
-    for key in list(st.session_state.keys()): 
-        del st.session_state[key]
-    initialize_session_state() 
-
-def reset_application_confirm_callback():
-    st.session_state.confirm_clear_visible = False 
-    reset_application_logic()
-
-def show_confirm_clear_callback():
-    st.session_state.confirm_clear_visible = True
-
-def select_turn_for_display(turn_index):
-    if st.session_state.current_turn_index < len(st.session_state.history):
-        current_key_suffix = st.session_state.current_turn_index
-        st.session_state.history[st.session_state.current_turn_index]['user_edited_response'] = \
-            st.session_state[f"gemini_output_editor_widget_{current_key_suffix}"]
-
-    st.session_state.current_turn_index = turn_index
-
-    selected_turn = st.session_state.history[turn_index]
-    st.session_state.current_gemini_response_display = selected_turn['user_edited_response']
-    st.session_state.current_user_prompt_display = selected_turn['user_prompt']
-
-    st.session_state.active_rows_to_send_input_value = 0
-    st.session_state.terminated_rows_to_send_input_value = 0
-    
-
-def create_new_turn_mode():
-    if st.session_state.current_turn_index < len(st.session_state.history):
-        current_key_suffix = st.session_state.current_turn_index
-        st.session_state.history[st.session_state.current_turn_index]['user_edited_response'] = \
-            st.session_state[f"gemini_output_editor_widget_{current_key_suffix}"]
-    
-    st.session_state.current_turn_index = len(st.session_state.history)
-    
-    st.session_state.current_gemini_response_display = ""
-    if st.session_state.history:
-        st.session_state.current_user_prompt_display = st.session_state.history[-1]['user_prompt']
-    else:
-        st.session_state.current_user_prompt_display = "Analyze the provided active and terminated customer data. Identify any patterns, key differences, or insights that could be useful for customer retention or win-back strategies. Focus on common attributes like tenure, last activity, or service usage if available. Provide a concise summary."
-
-    st.session_state.active_rows_to_send_input_value = 0
-    st.session_state.terminated_rows_to_send_input_value = 0
-
-# --- Streamlit UI Layout ---
-
-st.set_page_config(layout="wide", page_title="Gemini Data Processor")
-st.title("Gemini Data Processor with Iterative Input")
-
-st.markdown("""
-Upload your 'Active' and 'Terminated' CSV files.
-This app allows you to interactively analyze large datasets with Gemini in batches.
-Each interaction is saved in the sidebar, and you can review past turns or start new ones.
-""")
-
-with st.sidebar:
-    st.header("Global Controls")
-    if st.button("Clear Data & Reset Application ", key="clear_all_button", on_click=show_confirm_clear_callback):
-        pass
-
-    if st.session_state.confirm_clear_visible:
-        st.warning("Are you sure? This will delete uploaded data, conversation history and you will need to reupload your files during the next iteration.")
-        if st.button("Confirm Clear All", key="confirm_clear_all_action", on_click=reset_application_confirm_callback):
-            pass
-
-    st.markdown("---")
-    
-    is_new_turn_mode_active = (st.session_state.current_turn_index == len(st.session_state.history))
-    if is_new_turn_mode_active:
-        st.markdown("**➕ New Turn (Active)**")
-    else:
-        if st.button("➕ Start New Turn", key="start_new_turn_sidebar_button", on_click=create_new_turn_mode):
-            pass
-        
-    st.markdown('<p style="font-size:12px;">(Resets rows used in the csv files and allows you to start a new turn with no context.)</p>', unsafe_allow_html=True)
-    st.markdown("---")
-    st.markdown("## Previous Analysis Turns")
-
-    if not st.session_state.history:
-        st.info("No turns completed yet.")
-    else:
-        for i in range(len(st.session_state.history) - 1, -1, -1):
-            turn = st.session_state.history[i]
-            is_selected_historical_turn = (i == st.session_state.current_turn_index) and not is_new_turn_mode_active
-            button_label = f"**Turn {turn['turn_number']}**"
-            
-            if is_selected_historical_turn:
-                st.markdown(f"➡️ {button_label} (Selected)")
+    col_nav1, col_nav2 = st.columns(2)
+    with col_nav1:
+        if st.button("Next X Rows"):
+            if st.session_state.current_row_start_index + num_rows_to_send < max_rows:
+                st.session_state.current_row_start_index += num_rows_to_send
             else:
-                if st.button(button_label, key=f"select_turn_{turn['turn_number']}_{uuid.uuid4()}", on_click=select_turn_for_display, args=(i,)):
-                    pass
+                st.session_state.current_row_start_index = 0
+                st.info("Reached end of data. Resetting to start.")
+            clear_gemini_results()
+            st.rerun()
+    with col_nav2:
+        if st.button("Reset Rows Selection"):
+            st.session_state.current_row_start_index = 0
+            clear_gemini_results()
+            st.rerun()
+
+    st.info(f"Currently processing rows: {st.session_state.current_row_start_index} to "
+            f"{min(st.session_state.current_row_start_index + num_rows_to_send, max_rows) - 1}")
+
+    current_rows_df = get_rows_for_model(st.session_state.df_modified,
+                                         st.session_state.current_row_start_index,
+                                         num_rows_to_send)
+
+    st.subheader("Rows being sent to models:")
+    st.dataframe(current_rows_df)
+
+    st.header("Annotate Numerical Values in CSV")
+    if st.session_state.df_modified is not None:
+        numerical_cols = st.session_state.df_modified.select_dtypes(include=['number']).columns.tolist()
+
+        if numerical_cols:
+            annotation_percentage = st.slider(
+                "Select percentage change:",
+                min_value=-50, max_value=50, value=0, step=1,
+                help="Enter a positive value to increase, negative to decrease. E.g., 10 for +10%, -5 for -5%."
+            )
+            columns_to_annotate = st.multiselect(
+                "Select column(s) to annotate:",
+                options=numerical_cols,
+                help="Choose one or more numerical columns to apply the percentage change."
+            )
+
+            if st.button("Annotate CSV"):
+                if columns_to_annotate:
+                    st.session_state.df_modified = annotate_dataframe(
+                        st.session_state.df_modified,
+                        annotation_percentage,
+                        columns_to_annotate
+                    )
+                    st.success(f"CSV annotated! {annotation_percentage}% applied to {', '.join(columns_to_annotate)}.")
+                    st.dataframe(st.session_state.df_modified.head())
+                    st.session_state.current_row_start_index = 0
+                    clear_gemini_results()
+                else:
+                    st.warning("Please select at least one numerical column to annotate.")
+        else:
+            st.info("No numerical columns found in the CSV to annotate.")
+
+    st.header("Model Analysis Results")
+    col1, col2 = st.columns(2)
+
+    with col1:
+        st.subheader("Gemini Decision Tree Model")
+        try:
+            _ = st.secrets["GEMINI_API_KEY"]
+            if not current_rows_df.empty:
+                model = get_gemini_model()
+                if model:
+                    if st.button("Run Gemini Model on Selected Rows"):
+                        with st.spinner("Preparing to analyze..."):
+                            per_row_summary_for_report = []
+                            st.session_state.gemini_per_row_results = []
+
+                            total_rows_to_process = len(current_rows_df)
+                            status_placeholder = st.empty()
+
+                            for idx, (_, row) in enumerate(current_rows_df.iterrows()):
+                                current_processing_index = idx + 1
+                                status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
+
+                                row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
+
+                                per_row_instruction_prompt = f"""
+Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
+analyze each row of the following CSV data.
+For each row, determine the exact "category" (e.g., "category 4: The Liability", "category 0a: The Cornerstone (Standard)")
+that the employee falls into, applying the rules hierarchically from Category 4 down to 0a.
+Then, provide a concise, one-line explanation *why* that specific category was assigned,
+referencing the data criteria that led to that classification.
+
+--- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+{DECISION_TREE_RULEBOOK}
+--- End of Rulebook ---
+
+--- Employee Data (CSV) ---
+{row_csv_string}
+--- End of Employee Data ---
+
+Please format your output for each row as:
+"Row {row.name}: [Category Name]. [One-line explanation]."
+Example: "Row 1: category 4: The Liability. Score was 20 which is less than 25."
+Example: "Row 2: category 0a: The Cornerstone (Standard). Met all criteria for 0a and did not meet any higher category criteria."
+Ensure each row's analysis is on a new line.
+You dont have to stick to the rules to explain the category that someone got, you may look at the other attributes if they explain the category better.
+"""
+                                try:
+                                    response = model.generate_content(per_row_instruction_prompt)
+                                    row_analysis = response.text.strip()
+                                    st.session_state.gemini_per_row_results.append(row_analysis)
+                                    per_row_summary_for_report.append(row_analysis)
+
+                                except Exception as e:
+                                    st.error(f"Error processing row {row.name} with Gemini: {e}")
+                                    st.session_state.gemini_per_row_results.append(f"Error for Row {row.name}: {e}")
+                                    per_row_summary_for_report.append(f"Error for Row {row.name}")
+
+                            status_placeholder.empty()
+
+                            st.subheader("Per-Row Analysis Details:")
+                            with st.container(height=300, border=True):
+                                if st.session_state.gemini_per_row_results:
+                                    for idx, result_text in enumerate(st.session_state.gemini_per_row_results):
+                                        display_row_index = st.session_state.current_row_start_index + idx
+
+                                        display_content = result_text
+                                        match = re.match(r"Row \d+:\s*(.*)", display_content, re.IGNORECASE)
+                                        if match:
+                                            display_content = match.group(1).strip()
+                                        
+                                        expander_title_suffix = "Analysis"
+                                        category_match = re.match(r"(category \d+:\s*[^.]+)\.", display_content, re.IGNORECASE)
+                                        if category_match:
+                                            expander_title_suffix = category_match.group(1).strip()
+                                        
+                                        with st.expander(f"Row {display_row_index}: {expander_title_suffix}"):
+                                            st.markdown(display_content)
+                                else:
+                                    st.info("No per-row results to display yet. Run the model to see results here.")
 
 
-st.markdown("---") 
+                            if per_row_summary_for_report:
+                                st.subheader("Aggregate Summary Report:")
+                                status_placeholder.info("Generating comprehensive aggregate report...")
+                                overall_report_instruction_prompt = f"""
+You have just classified a set of employee data rows into risk categories
+using the "Definitive Attrition & Hiring Risk Model" rulebook.
 
-st.header("1. Upload Data Files")
-col1, col2 = st.columns(2)
+Here is the immutable rulebook you used:
+--- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+{DECISION_TREE_RULEBOOK}
+--- End of Rulebook ---
 
-with col1:
-    uploaded_active_file = st.file_uploader("Upload Active Records CSV", type="csv", key="active_upload")
-    if uploaded_active_file is not None:
-        if st.session_state.active_df is None or uploaded_active_file.name != st.session_state.get('active_file_name'):
-            try:
-                st.session_state.active_df = pd.read_csv(uploaded_active_file)
-                st.session_state.active_file_name = uploaded_active_file.name
-                st.info(f"Active Records: {len(st.session_state.active_df)} rows loaded.")
-            except Exception as e:
-                st.error(f"Error reading Active CSV: {e}")
-    elif uploaded_active_file is None and st.session_state.active_df is not None:
-        st.session_state.active_df = None
-        st.session_state.active_file_name = None
+Here are the individual classification results for each employee/row:
+--- Per-Row Classification Results ---
+{per_row_summary_for_report}
+--- End of Per-Row Classification Results ---
 
+Based on the rulebook and these individual classification results,
+generate a comprehensive analysis report. Your report should be well-structured, clear,
+and easy to understand for a hiring manager or HR professional.
 
-with col2:
-    uploaded_terminated_file = st.file_uploader("Upload Terminated Records CSV", type="csv", key="terminated_upload")
-    if uploaded_terminated_file is not None:
-        if st.session_state.terminated_df is None or uploaded_terminated_file.name != st.session_state.get('terminated_file_name'):
-            try:
-                st.session_state.terminated_df = pd.read_csv(uploaded_terminated_file)
-                st.session_state.terminated_file_name = uploaded_terminated_file.name
-                st.info(f"Terminated Records: {len(st.session_state.terminated_df)} rows loaded.")
-            except Exception as e:
-                st.error(f"Error reading Terminated CSV: {e}")
-    elif uploaded_terminated_file is None and st.session_state.terminated_df is not None:
-        st.session_state.terminated_df = None
-        st.session_state.terminated_file_name = None
+**Structure your report precisely as follows, filling in the content based on your analysis:**
 
+**Definitive Attrition & Hiring Risk Model: Analysis Report**
+This report summarizes the results of applying the "Definitive Attrition & Hiring Risk Model" to a dataset of employee data. It highlights key trends, potential risks, and actionable insights to inform hiring and retention strategies.
 
-st.markdown("---")
+**1. Risk Category Distribution:**
+Summarize the count of employees in each risk category found in the "Per-Row Classification Results." Present this as a markdown table with columns for "Category," "Description," and "Count." Ensure all categories mentioned in the rulebook are included, even if their count is zero.
 
-st.header("2. Configure Current Turn / Send to Gemini")
+**2. Prevalent Risk Categories and Implications:**
+Identify the 1-3 most prevalent risk categories based on their counts. For each identified category, provide:
+- The **Category Name** and its **count**.
+- Its **Profile Description** as stated in the rulebook.
+- Its **Actionable Insight** as stated in the rulebook.
+- A concise discussion of the **Implication** for hiring/HR based on the prevalence of this category within the analyzed dataset.
 
-if st.session_state.current_turn_index < len(st.session_state.history):
-    active_turn_data = st.session_state.history[st.session_state.current_turn_index]
-    st.subheader(f"Viewing Turn {active_turn_data['turn_number']} Details")
-    
-    st.markdown("### **User Prompt for this Turn:**")
-    st.markdown(active_turn_data['user_prompt'])
+**3. Interesting Patterns and Anomalies:**
+Highlight any noteworthy patterns or unusual observations from the classification results. This can include:
+- Categories that have surprisingly high or low (including zero) counts.
+- Any instances where employees narrowly missed a different category based on their scores.
+- Specific data criteria (e.g., 'Withholding', 'Score', 'GYR') that appear to be strong drivers for certain classifications in this dataset.
+- Mention any rows that stand out as exceptions or confirm specific model behaviors.
 
-    st.markdown("### **Gemini's Raw Response for this Turn:**")
-    st.markdown(active_turn_data['gemini_response'])
+**4. Actionable Insights and Recommendations:**
+Provide clear, specific, and actionable recommendations for a hiring manager or HR professional. These recommendations should directly stem from your analysis of the risk category distribution, prevalent risks, and observed patterns. Link recommendations to the "Actionable Insight" sections from the rulebook where appropriate.
 
-    st.markdown(f"**Active Rows Processed in this turn:** Rows {active_turn_data['active_data_sent_start_index']} to {active_turn_data['active_data_sent_start_index'] + active_turn_data['active_data_sent_num_rows'] - 1} ({active_turn_data['active_data_sent_num_rows']} rows)")
-    st.markdown(f"**Terminated Rows Processed in this turn:** Rows {active_turn_data['terminated_data_sent_start_index']} to {active_turn_data['terminated_data_sent_start_index'] + active_turn_data['terminated_data_sent_num_rows'] - 1} ({active_turn_data['terminated_data_sent_num_rows']} rows)")
+**5. Impact of Data Changes (Causal Analysis):**
+Discuss how hypothetical changes to the input data for *any* employee would causally impact their classification across risk categories. For each mentioned metric (e.g., 'Score', 'Manipulative', 'GYR', 'Work Ethic/Duty', 'Integrity'):
+- Explain how increasing/decreasing its value could shift an employee from one category to another.
+- Provide concrete, concise examples that directly reference the rulebook's criteria for category transitions.
 
-    st.markdown("---")
-    st.subheader("Prepare for Next Interaction (or create new turn)")
+**6. Conclusion:**
+Provide a concise concluding summary of the report's main findings, emphasizing the most critical takeaways and strategic implications for managing attrition and hiring risk based on this analysis.
+"""
+                                try:
+                                    overall_response = model.generate_content(overall_report_instruction_prompt)
+                                    st.session_state.gemini_overall_report = overall_response.text.strip()
+                                    st.markdown(st.session_state.gemini_overall_report)
+                                    status_placeholder.success("Aggregate report generated successfully!")
+                                except Exception as e:
+                                    st.error(f"Error generating overall report with Gemini: {e}")
+                                    status_placeholder.error("Failed to generate aggregate report.")
+                            else:
+                                st.warning("No individual row results to generate an aggregate report.")
+                                status_placeholder.empty()
+                else:
+                    st.warning("Gemini model not initialized. Please check your API key.")
+            else:
+                st.info("Upload a CSV and select rows to run the Gemini Model.")
+        except KeyError:
+            st.info("Please add your Gemini API Key to your `secrets.toml` file to enable this model.")
+
+    with col2:
+        st.subheader("Pure Stats Model (Placeholder)")
+        st.info("This column is reserved for the ML Model.")
+
+    st.header("CSV Actions")
+    col_actions1, col_actions2 = st.columns(2)
+    with col_actions1:
+        if st.button("Reset CSV to Original"):
+            if st.session_state.df_original is not None:
+                st.session_state.df_modified = st.session_state.df_original.copy()
+                st.session_state.current_row_start_index = 0
+                clear_gemini_results()
+                st.success("CSV reset to original state!")
+                st.dataframe(st.session_state.df_modified.head())
+            else:
+                st.warning("No original CSV to reset to.")
+    with col_actions2:
+        if st.session_state.df_modified is not None:
+            csv_data = convert_df_to_csv(st.session_state.df_modified)
+            st.download_button(
+                label="Download Annotated CSV",
+                data=csv_data,
+                file_name="annotated_data.csv",
+                mime="text/csv",
+                help="Download the current version of the CSV with applied annotations."
+            )
+        else:
+            st.info("Upload a CSV to enable download.")
 
 else:
-    st.subheader("Setting up New Turn")
-
-
-last_turn_end_active_rows = 0
-last_turn_end_terminated_rows = 0
-
-if st.session_state.history and st.session_state.current_turn_index < len(st.session_state.history):
-    selected_turn_data_source = st.session_state.history[st.session_state.current_turn_index]
-    last_turn_end_active_rows = selected_turn_data_source['active_rows_at_turn_end']
-    last_turn_end_terminated_rows = selected_turn_data_source['terminated_rows_at_turn_end']
-
-max_active_rows = len(st.session_state.active_df) if st.session_state.active_df is not None else 0
-max_terminated_rows = len(st.session_state.terminated_df) if st.session_state.terminated_df is not None else 0
-
-active_rows_left = max(0, max_active_rows - last_turn_end_active_rows)
-terminated_rows_left = max(0, max_terminated_rows - last_turn_end_terminated_rows)
-
-col3, col4 = st.columns(2)
-
-with col3:
-    st.markdown(f"**Active Records (Remaining: {active_rows_left} rows)**")
-    st.number_input(
-        "Number of Active rows to send in this batch:",
-        min_value=0,
-        max_value=active_rows_left,
-        value=int(st.session_state.active_rows_to_send_input_value or min(10, active_rows_left)),
-        key=f"active_rows_input_{st.session_state.current_turn_index}" 
-    )
-
-with col4:
-    st.markdown(f"**Terminated Records (Remaining: {terminated_rows_left} rows)**")
-    st.number_input(
-        "Number of Terminated rows to send in this batch:",
-        min_value=0,
-        max_value=terminated_rows_left,
-        value=int(st.session_state.terminated_rows_to_send_input_value or min(10, terminated_rows_left)),
-        key=f"terminated_rows_input_{st.session_state.current_turn_index}" 
-    )
-
-st.markdown("---")
-
-st.markdown("### Gemini's Response (Editable for Next Turn's Context)")
-st.text_area(
-    "Edit output or provide additional context:",
-    value=st.session_state.current_gemini_response_display,
-    height=300,
-    key=f"gemini_output_editor_widget_{st.session_state.current_turn_index}" 
-)
-st.info("The content in this box will be included as 'User-Edited Previous Output' for the next API call to Gemini.")
-
-st.markdown("---")
-
-st.markdown("### Your Instructions for Gemini for the Next Step")
-st.text_area(
-    "Enter your prompt (e.g., 'Analyze this data for trends', 'Summarize key differences'):",
-    key=f"user_prompt_input_widget_{st.session_state.current_turn_index}", 
-    height=150,
-    value=st.session_state.current_user_prompt_display 
-)
-
-if st.button("Send to Gemini (Process Next Batch)", on_click=send_to_gemini_callback):
-    pass
-
-else:
-    st.info("Please upload files to enable data analysis functionality.")
+    st.info("Please upload a CSV file to begin.")
