@@ -133,7 +133,6 @@ def clear_gemini_results():
     st.session_state.gemini_per_row_results = []
     st.session_state.gemini_overall_report = ""
 
-st.header("Gemini API Key Status")
 try:
     _ = st.secrets["GEMINI_API_KEY"]
 except KeyError:
