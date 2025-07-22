@@ -136,7 +136,6 @@ def clear_gemini_results():
 st.header("Gemini API Key Status")
 try:
     _ = st.secrets["GEMINI_API_KEY"]
-    st.success("Gemini API Key loaded successfully from Streamlit secrets.")
 except KeyError:
     st.warning("Gemini API Key not found in Streamlit secrets. Please add it to your `secrets.toml` file to enable model functionality.")
 
