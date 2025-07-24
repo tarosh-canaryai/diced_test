@@ -9,62 +9,37 @@ st.set_page_config(layout="wide", page_title="Attrition & Hiring Risk Analyzer")
 
 st.title("Model Comparison UI")
 
-DECISION_TREE_RULEBOOK = """
-category 4: The Liability
+DECISION_TREE_RULEBOOK ="""
+Category 5: The Volatile Performer
+Risk Level: Highest Risk
+Data Criteria: Manipulative > 95
+Profile Description: An individual who may appear skilled but whose extreme score indicates a critical risk of creating a toxic environment, engaging in disruptive workplace politics, or being fundamentally unmanageable.
+Actionable Insight: An unambiguous "Do Not Hire" signal. High probability (>90%) of involuntary termination within 0-8 months.
+Category 4: The Mismatch
 Risk Level: Critical
-Data Criteria: Score < 25 OR (GYR = RED AND Integrity < 40)
-Profile Description: An individual who is either fundamentally incapable of
-performing the job or possesses a critical character flaw that makes them an
-immediate liability.
-Actionable Insight: An unambiguous "Do Not Hire" signal. High probability
-(>90%) of involuntary termination within 0-3 months.
-category 3: The Deceiver
+Data Criteria: Conscientious < 50 AND Organized < 40 AND Integrity < 40
+Profile Description: An individual whose scores indicate a fundamental inability to meet the basic requirements of the job. They are highly likely to struggle with reliability, organization, and following rules.
+Actionable Insight: "Do Not Hire." This candidate is not set up for success. High probability (>90%) of termination within 0-4 months.
+Category 3: The High-Friction Employee
 Risk Level: High
-Data Criteria: GYR = RED AND (Withholding > 95 OR Manipulative > 90)
-Profile Description: A skilled but highly toxic individual who uses
-manipulation and information hoarding for personal gain. They are a severe
-threat to team morale, trust, and productivity.
-Actionable Insight: "Do Not Hire." The risk of poisoning team culture far
-outweighs their skills. High probability (>80%) of involuntary termination within 2-6
-months.
-category 2: The High-Risk Hire
+Data Criteria: Integrity < 50 AND Manipulative is between 70 and 95
+Profile Description: A profile that flags a significant interpersonal or cultural risk. This employee may be productive but can erode team trust and cohesion over time through divisive or political behavior.
+Actionable Insight: "Avoid Hiring." The risk of long-term damage to team morale outweighs short-term productivity. Poses a constant, elevated risk throughout their tenure.
+Category 2: The Burnout Risk
 Risk Level: Elevated
-Data Criteria: (GYR = RED AND Work Ethic/Duty < 40) OR (GYR =
-GREEN/YELLOW AND Manipulative > 75 AND Score < 65) OR (GYR =
-GREEN AND Work Ethic/Duty < 50)
-Profile Description: Identifies three problematic types: the "Slacker"
-(chronically poor effort), the "Unskilled Schemer" (covers incompetence with
-politics), and the "Skilled, Apathetic Employee" (capable but lacks drive).
-Actionable Insight: "Avoid Hiring." A significant drain on management time
-with a high probability (~70%) of termination within 3-9 months.
-Default Rule: Any GYR=RED employee not meeting the criteria for Level 4 or
-3 is defaulted to this category.
-category 1: The Gamble
+Data Criteria: (Conscientious > 80 AND Achievement > 90) AND (Work Ethic/Duty < 15)
+Profile Description: Identifies the "sprinter, not a marathon runner." This individual is ambitious and capable of high performance but is at high risk of neglecting essential, routine duties, leading to performance gaps or disengagement.
+Actionable Insight: "Cautious Hire / Requires Strong Management." A significant drain on management time is required to ensure consistency. High probability (~70%) of termination within 4-18 months if not managed effectively.
+Category 1: The Inconsistent Contributor
 Risk Level: Moderate
-Data Criteria: GYR = YELLOW, OR (GYR = GREEN AND Score <
-65), OR (GYR = GREEN AND Score >= 65 AND Manipulative > 75)
-Profile Description: Identifies the "Average/Underperformer" and the "Skilled
-but Political" hire. Their success is highly dependent on their direct manager
-and work environment.
-Actionable Insight: "Cautious Hire." A coin-toss with a ~50% long-term
-success rate. Viable for simple, well-supervised roles only.
-category 0b: The Superstar (Watchlist)
-Risk Level: Low (Initial), but Moderate Flight Risk
-Data Criteria: Meets all criteria for Level 0a AND (Score >= 88 AND
-Achievement >= 90)
-Profile Description: An exceptionally high-potential candidate who is also a
-significant flight risk if not properly engaged, challenged, or recognized.
-Actionable Insight: "Priority Hire, with a Proactive Retention Plan." The
-hiring manager must be notified of the flight risk. Requires a 90-day
-engagement plan.
-category 0a: The Cornerstone (Standard)
+Data Criteria: Work Ethic/Duty < 40 OR Integrity < 60
+Profile Description: An individual who does not have the critical flaws of higher-risk profiles but shows a significant weakness in a single foundational area—either drive or integrity. Their long-term performance and fit are unpredictable.
+Actionable Insight: "Cautious Hire." Their success is a coin-toss, highly dependent on a manager's ability to supervise their specific weakness. Expect a ~50% long-term success rate.
+Category 0: The Steady Performer
 Risk Level: Low
-Data Criteria: GYR = GREEN AND Score >= 65 AND Manipulative <=
-75 AND Work Ethic/Duty >= 50 (and does not meet L0b criteria).
-Profile Description: The target hiring profile. Demonstrates capability, a
-sound work ethic, and low behavioral risk.
-Actionable Insight: "Confident Hire." This is your priority candidate pool for
-stable, long-term success.
+Data Criteria: The employee does not meet the criteria for Categories 1 through 5.
+Profile Description: The target hiring profile. Demonstrates capability, a sound work ethic, and low behavioral risk. They are the foundation of a stable, productive team.
+Actionable Insight: "Confident Hire." This is your priority candidate pool for stable, long-term success.
 """
 
 if 'df_original' not in st.session_state:
