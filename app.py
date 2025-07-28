@@ -77,7 +77,7 @@ Actionable Insight: "Confident Hire." This is your priority candidate pool for s
 
 SCORE_COLUMNS_FOR_PLOT = [
     'Score', 'Conscientious', 'Organized', 'Integrity',
-    'Withholding', 'Manipulative', 'Work Ethic/Duty', 'Achievement', 'Achor Cherry Picking'
+    'Withholding', 'Manipulative', 'Work Ethic/Duty', 'Achievement', 'Anchor Cherry Picking'
 ]
 
 if 'df_original' not in st.session_state:
@@ -260,8 +260,27 @@ if st.session_state.df_modified is not None:
                                 row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
                                 original_scores = {}
                                 for col in SCORE_COLUMNS_FOR_PLOT:
-                                    if col in row and pd.api.types.is_numeric_dtype(row[col]):
-                                        original_scores[col] = row[col]
+                                    if col in row: # First, check if column exists in the row
+                                        value = row[col]
+                                        
+                                        # --- FIX FOR IsNumericDtype=False ---
+                                        # Attempt to convert the value to numeric.
+                                        # 'coerce' will turn non-numeric values into NaN (Not a Number)
+                                        numeric_value = pd.to_numeric(value, errors='coerce')
+                                        
+                                        # Check if the conversion was successful (i.e., not NaN)
+                                        if pd.notna(numeric_value):
+                                            original_scores[col] = numeric_value
+                                            # Debugging line:
+                                            st.write(f"  DEBUG: Successfully processed '{col}': {numeric_value}")
+                                        else:
+                                            # Debugging line:
+                                            st.write(f"  DEBUG: Skipped '{col}' as non-numeric after coercion: '{value}'")
+                                        # --- END FIX FOR IsNumericDtype=False ---
+                                    else:
+                                        # Debugging line:
+                                        st.write(f"  DEBUG: Column '{col}' not found in row {row.name} for plotting.")
+                                        
                                 st.write(f"DEBUG for Row {row.name}:")
                                 for debug_col in SCORE_COLUMNS_FOR_PLOT:
                                     is_present = debug_col in row
