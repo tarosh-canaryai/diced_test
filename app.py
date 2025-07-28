@@ -4,13 +4,30 @@ import io
 import os
 import google.generativeai as genai
 import re
+import json
+import plotly.express as px
+from collections import Counter
+
+# --- API Key Management (IMPORTANT for Hosting) ---
+# It's best practice to store API keys in Streamlit Secrets for deployment.
+# Create a file named .streamlit/secrets.toml in your app's root directory
+# and add your GEMINI_API_KEY = "your_actual_api_key_here" inside it.
+try:
+    GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
+except KeyError:
+    st.warning("GEMINI_API_KEY not found in Streamlit Secrets. "
+               "Please add it to .streamlit/secrets.toml or set it as an environment variable.")
+    GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE" # Fallback for local testing if not using secrets
+
+GEMINI_MODEL_NAME = "gemini-2.0-flash"
 
 st.set_page_config(layout="wide", page_title="Attrition & Hiring Risk Analyzer")
 
-st.title("Model Comparison UI")
+st.title("Attrition & Hiring Risk Analyzer")
+st.markdown("### Compare AI Model Outputs Using Your CSV Data")
+st.write("Upload your employee data, apply hypothetical changes, and see how different models classify hiring and attrition risks.")
 
-DECISION_TREE_RULEBOOK ="""
-This is a hierarchical fall-through model. You must check an employee against the categories in order, from 7 down to 0. The first category an employee qualifies for is their definitive classification.
+DECISION_TREE_RULEBOOK = """
 Category 7: The Volatile Performer
 Risk Level: Highest Risk
 Data Criteria: Manipulative > 95
@@ -72,14 +89,16 @@ if 'gemini_per_row_results' not in st.session_state:
 if 'gemini_overall_report' not in st.session_state:
     st.session_state.gemini_overall_report = ""
 
+
 def get_gemini_model():
-    try:
-        api_key = st.secrets["GEMINI_API_KEY"]
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel("gemini-2.0-flash")
-    except KeyError:
-        st.error("Gemini API Key not found in Streamlit secrets. Please add it to your `secrets.toml` file.")
+    # Only show warning if API key is the default placeholder or not found in secrets
+    if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+        st.warning("Please replace 'YOUR_GEMINI_API_KEY_HERE' in your code or "
+                   "set GEMINI_API_KEY in .streamlit/secrets.toml to enable model functionality.")
         return None
+    try:
+        genai.configure(api_key=GEMINI_API_KEY)
+        return genai.GenerativeModel(GEMINI_MODEL_NAME)
     except Exception as e:
         st.error(f"Error configuring Gemini API: {e}. Please check your API key.")
         return None
@@ -127,8 +146,9 @@ def clear_gemini_results():
     st.session_state.gemini_per_row_results = []
     st.session_state.gemini_overall_report = ""
 
-if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
-    st.warning("Please replace 'YOUR_GEMINI_API_KEY_HERE' in the script with your actual Gemini API Key to enable model functionality.")
+# Moved API Key status check into get_gemini_model for cleaner flow
+# if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+#     st.warning("Please replace 'YOUR_GEMINI_API_KEY_HERE' in the script with your actual Gemini API Key to enable model functionality.")
 
 with st.container(border=True):
     st.header("Step 1: Upload Your CSV Data")
@@ -141,10 +161,10 @@ with st.container(border=True):
         process_csv_upload(uploaded_file)
 
     if st.session_state.df_modified is not None:
-        if st.session_state.df_modified is not None:
-            st.subheader("Currently Loaded Data (first 5 rows):")
-            st.dataframe(st.session_state.df_modified.head())
+        st.subheader("Currently Loaded Data (first 5 rows):")
+        st.dataframe(st.session_state.df_modified.head())
 
+    
 
 if st.session_state.df_modified is not None:
     with st.container(border=True):
@@ -226,161 +246,165 @@ if st.session_state.df_modified is not None:
 
         with col1:
             st.subheader("Gemini Decision Tree Model")
-            if GEMINI_API_KEY != "YOUR_GEMINI_API_KEY_HERE":
-                if not current_rows_df.empty:
-                    model = get_gemini_model()
-                    if model:
-                        if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
-                            with st.spinner("Preparing to analyze..."):
-                                per_row_summary_for_report = []
-                                st.session_state.gemini_per_row_results = []
+            if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE": 
+                st.info("Please set your Gemini API key in `.streamlit/secrets.toml` to enable this model.")
+            elif not current_rows_df.empty:
+                model = get_gemini_model()
+                if model:
+                    if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
+                        with st.spinner("Preparing to analyze..."):
+                            per_row_summary_for_report = []
+                            st.session_state.gemini_per_row_results = []
 
-                                total_rows_to_process = len(current_rows_df)
-                                status_placeholder = st.empty()
+                            total_rows_to_process = len(current_rows_df)
+                            status_placeholder = st.empty()
 
-                                for idx, (_, row) in enumerate(current_rows_df.iterrows()):
-                                    current_processing_index = idx + 1
-                                    status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
+                            for idx, (_, row) in enumerate(current_rows_df.iterrows()):
+                                current_processing_index = idx + 1
+                                status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
 
-                                    row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
+                                row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
 
-                                    per_row_instruction_prompt = f"""
-                                    Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
-                                    analyze each row of the following CSV data.
-                                    For each row, determine the exact "category" (e.g., "Category 7: The Volatile Performer")
-                                    that the employee falls into, applying the rules hierarchically from Category 7 down to 0.
-                                    
-                                    Then, provide a concise, one-line explanation *why* that specific category was assigned,
-                                    referencing the data criteria that led to that classification.
-                                    
-                                    Additionally, extract the `Risk Level` and `Estimated Tenure if Terminated` directly from the assigned category's description in the rulebook.
+                                per_row_instruction_prompt = f"""
+                                Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
 
-                                    --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
-                                    {DECISION_TREE_RULEBOOK}
-                                    --- End of Rulebook ---
+                                Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
+                                analyze this single row of CSV data.
+                                Determine the exact "category" (e.g., "Category 7: The Volatile Performer")
+                                that the employee falls into, applying the rules hierarchically from Category 7 down to 0.
+                                
+                                Then, provide a concise, one-line explanation *why* that specific category was assigned,
+                                referencing the data criteria that led to that classification.
+                                
+                                Additionally, extract the `Risk Level` and `Estimated Tenure if Terminated` directly from the assigned category's description in the rulebook.
 
-                                    --- Employee Data (CSV) ---
-                                    {row_csv_string}
-                                    --- End of Employee Data ---
+                                --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+                                {DECISION_TREE_RULEBOOK}
+                                --- End of Rulebook ---
 
-                                    Please format your output for each row as a JSON object with the following keys:
-                                    `row_id`: The original row identifier (e.g., "Row {row.name}")
-                                    `category_name`: The full category name (e.g., "Category 7: The Volatile Performer")
-                                    `risk_level`: The risk level from the rulebook for that category (e.g., "Highest Risk")
-                                    `estimated_tenure`: The estimated tenure from the rulebook for that category (e.g., "1 - 5 Months")
-                                    `explanation`: A concise, one-line explanation why this category was assigned.
+                                --- Employee Data (CSV) ---
+                                {row_csv_string}
+                                --- End of Employee Data ---
 
-                                    Example JSON Output for Row 1:
-                                    ```json
-                                    {{
-                                      "row_id": "Row 1",
-                                      "category_name": "Category 4: The Burnout Risk",
-                                      "risk_level": "Elevated",
-                                      "estimated_tenure": "1 - 4 Months",
-                                      "explanation": "Met criteria for high Conscientious (>80) and Achievement (>90) but very low Work Ethic/Duty (<15)."
-                                    }}
-                                    ```
-                                    Ensure each row's analysis is a single JSON object. Do not include extra text outside the JSON.
-                                    """
-                                    
+                                The JSON object must have the following keys:
+                                `row_id`: The original row identifier (e.g., "Row {row.name}")
+                                `category_name`: The full category name (e.g., "Category 7: The Volatile Performer")
+                                `risk_level`: The risk level from the rulebook for that category (e.g., "Highest Risk")
+                                `estimated_tenure`: The estimated tenure from the rulebook for that category (e.g., "1 - 5 Months")
+                                `explanation`: A concise, one-line explanation why this category was assigned.
+
+                                Example JSON Output for Row 1:
+                                {{
+                                  "row_id": "Row 1",
+                                  "category_name": "Category 4: The Burnout Risk",
+                                  "risk_level": "Elevated",
+                                  "estimated_tenure": "1 - 4 Months",
+                                  "explanation": "Met criteria for high Conscientious (>80) and Achievement (>90) but very low Work Ethic/Duty (<15)."
+                                }}
+                                """
+                                
+                                try:
+                                    response = model.generate_content(per_row_instruction_prompt)
+                                    raw_response_text = response.text.strip() # Get the raw text
+
+                                    # Attempt to clean and parse JSON
+                                    json_analysis = {}
                                     try:
-                                        response = model.generate_content(per_row_instruction_prompt)
-                                        raw_response_text = response.text.strip() # Get the raw text
-
-                                        # --- FIX: Extract JSON from markdown code block ---
+                                        # Try loading directly first (ideal)
+                                        json_analysis = json.loads(raw_response_text)
+                                    except json.JSONDecodeError:
+                                        # If direct load fails, try to extract from markdown block
                                         json_match = re.search(r"```json\s*(\{.*\})\s*```", raw_response_text, re.DOTALL)
                                         if json_match:
                                             json_string = json_match.group(1)
                                             json_analysis = json.loads(json_string)
                                         else:
-                                            # If no markdown block, try to load directly (might be Gemini's direct output)
-                                            json_analysis = json.loads(raw_response_text)
-                                        # --- End FIX ---
+                                            # If still no valid JSON, raise error to be caught below
+                                            raise json.JSONDecodeError("No valid JSON found in response.", raw_response_text, 0)
 
-                                        st.session_state.gemini_per_row_results.append(json_analysis)
-                                        per_row_summary_for_report.append(json.dumps(json_analysis))
 
-                                    except json.JSONDecodeError as e:
-                                        st.error(f"Error decoding JSON for row {row.name}: {e}\nRaw response: {raw_response_text}")
-                                        st.session_state.gemini_per_row_results.append({"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"})
-                                        per_row_summary_for_report.append(f"Error for Row {row.name}: JSON decode error")
-                                    except Exception as e:
-                                        st.error(f"Error processing row {row.name} with Gemini: {e}")
-                                        st.session_state.gemini_per_row_results.append({"row_id": f"Row {row.name}", "error": f"General error: {e}"})
-                                        per_row_summary_for_report.append(f"Error for Row {row.name}: General error")
+                                    st.session_state.gemini_per_row_results.append(json_analysis)
+                                    per_row_summary_for_report.append(json.dumps(json_analysis))
 
+                                except json.JSONDecodeError as e:
+                                    st.error(f"Error decoding JSON for row {row.name}: {e}\nRaw response: {raw_response_text}")
+                                    st.session_state.gemini_per_row_results.append({"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"})
+                                    per_row_summary_for_report.append(f"Error for Row {row.name}: JSON decode error")
+                                except Exception as e:
+                                    st.error(f"Error processing row {row.name} with Gemini: {e}")
+                                    st.session_state.gemini_per_row_results.append({"row_id": f"Row {row.name}", "error": f"General error: {e}"})
+                                    per_row_summary_for_report.append(f"Error for Row {row.name}: General error")
+
+                            status_placeholder.empty()
+
+                            if per_row_summary_for_report:
+                                status_placeholder.info("Generating comprehensive aggregate report...")
+                                overall_report_instruction_prompt = f"""
+                                You have just classified a set of employee data rows into risk categories
+                                using the "Definitive Attrition & Hiring Risk Model" rulebook.
+
+                                Here is the immutable rulebook you used:
+                                --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+                                {DECISION_TREE_RULEBOOK}
+                                --- End of Rulebook ---
+
+                                Here are the individual classification results for each employee/row, provided as a list of JSON objects (each object represents one row's analysis):
+                                --- Per-Row Classification Results (JSON list) ---
+                                {per_row_summary_for_report}
+                                --- End of Per-Row Classification Results ---
+
+                                Based on the rulebook and these individual classification results,
+                                generate a comprehensive analysis report. Your report should be well-structured, clear,
+                                and easy to understand for a hiring manager or HR professional.
+                                Pay close attention to the 'category_name', 'risk_level', and 'estimated_tenure' fields in the JSON objects for your analysis.
+
+                                **Structure your report precisely as follows, filling in the content based on your analysis:**
+
+                                **Definitive Attrition & Hiring Risk Model: Analysis Report**
+                                This report summarizes the results of applying the "Definitive Attrition & Hiring Risk Model" to a dataset of employee data. It highlights key trends, potential risks, and actionable insights to inform hiring and retention strategies.
+
+                                **1. Risk Category Distribution:**
+                                Summarize the count of employees in each risk category found in the "Per-Row Classification Results." Present this as a markdown table with columns for "Category," "Description," and "Count." Ensure all categories mentioned in the rulebook are included, even if their count is zero.
+
+                                **2. Prevalent Risk Categories and Implications:**
+                                Identify the 1-3 most prevalent risk categories based on their counts. For each identified category, provide:
+                                - The **Category Name** and its **count**.
+                                - Its **Profile Description** as stated in the rulebook.
+                                - Its **Actionable Insight** as stated in the rulebook.
+                                - A concise discussion of the **Implication** for hiring/HR based on the prevalence of this category within the analyzed dataset.
+
+                                **3. Interesting Patterns and Anomalies:**
+                                Highlight any noteworthy patterns or unusual observations from the classification results. This can include:
+                                - Categories that have surprisingly high or low (including zero) counts.
+                                - Any instances where employees narrowly missed a different category based on their scores.
+                                - Specific data criteria (e.g., 'Withholding', 'Score', 'GYR') that appear to be strong drivers for certain classifications in this dataset.
+                                - Mention any rows that stand out as exceptions or confirm specific model behaviors.
+
+                                **4. Actionable Insights and Recommendations:**
+                                Provide clear, specific, and actionable recommendations for a hiring manager or HR professional. These recommendations should directly stem from your analysis of the risk category distribution, prevalent risks, and observed patterns. Link recommendations to the "Actionable Insight" sections from the rulebook where appropriate.
+
+                                **5. Impact of Data Changes (Causal Analysis):**
+                                Discuss how hypothetical changes to the input data for *any* employee would causally impact their classification across risk categories. For each mentioned metric (e.g., 'Score', 'Manipulative', 'GYR', 'Work Ethic/Duty', 'Integrity', 'Conscientious', 'Organized', 'Achievement'):
+                                - Explain how increasing/decreasing its value could shift an employee from one category to another.
+                                - Provide concrete, concise examples that directly reference the rulebook's criteria for category transitions.
+
+                                **6. Conclusion:**
+                                Provide a concise concluding summary of the report's main findings, emphasizing the most critical takeaways and strategic implications for managing attrition and hiring risk based on this analysis.
+                                """
+                                try:
+                                    overall_response = model.generate_content(overall_report_instruction_prompt)
+                                    st.session_state.gemini_overall_report = overall_response.text.strip()
+                                    status_placeholder.success("Aggregate report generated successfully!")
+                                except Exception as e:
+                                    st.error(f"Error generating overall report with Gemini: {e}")
+                                    status_placeholder.error("Failed to generate aggregate report.")
+                            else:
+                                st.warning("No individual row results to generate an aggregate report.")
                                 status_placeholder.empty()
-
-                                if per_row_summary_for_report:
-                                    status_placeholder.info("Generating comprehensive aggregate report...")
-                                    overall_report_instruction_prompt = f"""
-                                    You have just classified a set of employee data rows into risk categories
-                                    using the "Definitive Attrition & Hiring Risk Model" rulebook.
-
-                                    Here is the immutable rulebook you used:
-                                    --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
-                                    {DECISION_TREE_RULEBOOK}
-                                    --- End of Rulebook ---
-
-                                    Here are the individual classification results for each employee/row, provided as a list of JSON objects:
-                                    --- Per-Row Classification Results (JSON list) ---
-                                    {per_row_summary_for_report}
-                                    --- End of Per-Row Classification Results ---
-
-                                    Based on the rulebook and these individual classification results,
-                                    generate a comprehensive analysis report. Your report should be well-structured, clear,
-                                    and easy to understand for a hiring manager or HR professional.
-                                    Pay close attention to the 'category_name', 'risk_level', and 'estimated_tenure' fields in the JSON objects for your analysis.
-
-                                    **Structure your report precisely as follows, filling in the content based on your analysis:**
-
-                                    **Definitive Attrition & Hiring Risk Model: Analysis Report**
-                                    This report summarizes the results of applying the "Definitive Attrition & Hiring Risk Model" to a dataset of employee data. It highlights key trends, potential risks, and actionable insights to inform hiring and retention strategies.
-
-                                    **1. Risk Category Distribution:**
-                                    Summarize the count of employees in each risk category found in the "Per-Row Classification Results." Present this as a markdown table with columns for "Category," "Description," and "Count." Ensure all categories mentioned in the rulebook are included, even if their count is zero.
-
-                                    **2. Prevalent Risk Categories and Implications:**
-                                    Identify the 1-3 most prevalent risk categories based on their counts. For each identified category, provide:
-                                    - The **Category Name** and its **count**.
-                                    - Its **Profile Description** as stated in the rulebook.
-                                    - Its **Actionable Insight** as stated in the rulebook.
-                                    - A concise discussion of the **Implication** for hiring/HR based on the prevalence of this category within the analyzed dataset.
-
-                                    **3. Interesting Patterns and Anomalies:**
-                                    Highlight any noteworthy patterns or unusual observations from the classification results. This can include:
-                                    - Categories that have surprisingly high or low (including zero) counts.
-                                    - Any instances where employees narrowly missed a different category based on their scores.
-                                    - Specific data criteria (e.g., 'Withholding', 'Score', 'GYR') that appear to be strong drivers for certain classifications in this dataset.
-                                    - Mention any rows that stand out as exceptions or confirm specific model behaviors.
-
-                                    **4. Actionable Insights and Recommendations:**
-                                    Provide clear, specific, and actionable recommendations for a hiring manager or HR professional. These recommendations should directly stem from your analysis of the risk category distribution, prevalent risks, and observed patterns. Link recommendations to the "Actionable Insight" sections from the rulebook where appropriate.
-
-                                    **5. Impact of Data Changes (Causal Analysis):**
-                                    Discuss how hypothetical changes to the input data for *any* employee would causally impact their classification across risk categories. For each mentioned metric (e.g., 'Score', 'Manipulative', 'GYR', 'Work Ethic/Duty', 'Integrity', 'Conscientious', 'Organized', 'Achievement'):
-                                    - Explain how increasing/decreasing its value could shift an employee from one category to another.
-                                    - Provide concrete, concise examples that directly reference the rulebook's criteria for category transitions.
-
-                                    **6. Conclusion:**
-                                    Provide a concise concluding summary of the report's main findings, emphasizing the most critical takeaways and strategic implications for managing attrition and hiring risk based on this analysis.
-                                    """
-                                    try:
-                                        overall_response = model.generate_content(overall_report_instruction_prompt)
-                                        st.session_state.gemini_overall_report = overall_response.text.strip()
-                                        status_placeholder.success("Aggregate report generated successfully!")
-                                    except Exception as e:
-                                        st.error(f"Error generating overall report with Gemini: {e}")
-                                        status_placeholder.error("Failed to generate aggregate report.")
-                                else:
-                                    st.warning("No individual row results to generate an aggregate report.")
-                                    status_placeholder.empty()
-                    else:
-                        st.warning("Gemini model not initialized. Please check your API key.")
                 else:
-                    st.info("Upload a CSV and select rows to run the Gemini Model.")
+                    st.warning("Gemini model not initialized. Please check your API key.")
             else:
-                st.info("Please replace 'YOUR_GEMINI_API_KEY_HERE' in the script with your actual Gemini API Key to enable this model.")
+                st.info("Upload a CSV and select rows to run the Gemini Model.")
 
             st.markdown("---")
             st.subheader("Gemini Model Analysis Results:")
@@ -420,6 +444,7 @@ if st.session_state.df_modified is not None:
                 st.subheader("Risk Category Distribution")
                 st.write("This chart shows the number of employees falling into each risk category based on the Gemini Model's classification.")
 
+                # Define the explicit order of categories by risk level for plotting
                 category_order = [
                     "Category 7: The Volatile Performer",
                     "Category 6: The Mismatch",
@@ -431,6 +456,7 @@ if st.session_state.df_modified is not None:
                     "Category 0: The Steady Performer"
                 ]
 
+                # Define a color map for risk levels
                 risk_color_map = {
                     "Highest Risk": "darkred",
                     "Critical": "red",
@@ -440,7 +466,7 @@ if st.session_state.df_modified is not None:
                     "Moderate": "yellowgreen",
                     "Moderate-Low": "limegreen",
                     "Low": "darkgreen",
-                    "N/A": "gray" 
+                    "N/A": "gray" # Fallback for categories not explicitly mapped
                 }
 
                 # Prepare data for the bar chart
@@ -452,8 +478,10 @@ if st.session_state.df_modified is not None:
                     else:
                         category_counts["Error/Missing Category"] += 1
 
+                # Convert Counter to DataFrame
                 df_category_distribution = pd.DataFrame(category_counts.items(), columns=['Category', 'Count'])
 
+                # Add Risk Level for coloring and sorting
                 category_risk_mapping = {}
                 for result_dict in st.session_state.gemini_per_row_results:
                     category = result_dict.get('category_name')
@@ -463,9 +491,11 @@ if st.session_state.df_modified is not None:
                 
                 df_category_distribution['Risk_Level'] = df_category_distribution['Category'].map(category_risk_mapping).fillna("N/A")
 
+                # Ensure all categories from the order are in the DataFrame, even if count is 0
                 full_categories = pd.DataFrame({'Category': category_order})
                 df_category_distribution = pd.merge(full_categories, df_category_distribution, on='Category', how='left').fillna({'Count': 0, 'Risk_Level': 'N/A'})
                 
+                # Sort categories for consistent plotting order (highest risk at top for horizontal chart)
                 df_category_distribution['Category'] = pd.Categorical(
                     df_category_distribution['Category'],
                     categories=category_order,
@@ -473,25 +503,31 @@ if st.session_state.df_modified is not None:
                 )
                 df_category_distribution = df_category_distribution.sort_values('Category', ascending=False) 
 
+                # Create the bar chart
                 fig_bar = px.bar(
                     df_category_distribution,
                     x='Count',
                     y='Category',
                     title='Number of Employees Per Risk Category',
-                    color='Risk_Level',
-                    color_discrete_map=risk_color_map, 
-                    orientation='h', 
-                    text='Count', 
+                    color='Risk_Level', # Color by Risk Level
+                    color_discrete_map=risk_color_map, # Apply custom color map
+                    orientation='h', # Horizontal bars
+                    text='Count', # Show count on bars
                     labels={'Category': 'Risk Category', 'Count': 'Number of Employees'}
                 )
 
-                fig_bar.update_traces(textposition='outside') 
+                fig_bar.update_traces(textposition='outside') # Position text outside bars
                 fig_bar.update_layout(
                     showlegend=True,
+                    # Ensure y-axis order matches our specified order
                     yaxis={'categoryorder':'array', 'categoryarray':list(df_category_distribution['Category'].astype(str))},
                     xaxis_title="Number of Employees",
-                    margin=dict(l=0, r=0, t=40, b=0), 
+                    margin=dict(l=0, r=0, t=40, b=0), # Adjust margins for better fit
+                    plot_bgcolor='rgba(0,0,0,0)', # Transparent background
+                    paper_bgcolor='rgba(0,0,0,0)' # Transparent paper background
                 )
+                fig_bar.update_xaxes(showgrid=False) # Hide x-axis grid lines
+                fig_bar.update_yaxes(showgrid=False) # Hide y-axis grid lines
 
                 st.plotly_chart(fig_bar, use_container_width=True)
 
