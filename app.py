@@ -258,7 +258,7 @@ if st.session_state.df_modified is not None:
                                 status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
 
                                 row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
-                                riginal_scores = {}
+                                original_scores = {}
                                 for col in SCORE_COLUMNS_FOR_PLOT:
                                     if col in row and pd.api.types.is_numeric_dtype(row[col]):
                                         original_scores[col] = row[col]
