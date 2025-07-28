@@ -75,6 +75,11 @@ Estimated Tenure if Terminated: N/A (This profile predicts retention, not termin
 Actionable Insight: "Confident Hire." This is your priority candidate pool for stable, long-term success.
 """
 
+SCORE_COLUMNS_FOR_PLOT = [
+    'Score', 'Conscientious', 'Organized', 'Integrity',
+    'Withholding', 'Manipulative', 'Work Ethic/Duty', 'Achievement', 'Achor Cherry Picking'
+]
+
 if 'df_original' not in st.session_state:
     st.session_state.df_original = None
 if 'df_modified' not in st.session_state:
@@ -253,7 +258,11 @@ if st.session_state.df_modified is not None:
                                 status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
 
                                 row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
-
+                                riginal_scores = {}
+                                for col in SCORE_COLUMNS_FOR_PLOT:
+                                    if col in row and pd.api.types.is_numeric_dtype(row[col]):
+                                        original_scores[col] = row[col]
+                                        
                                 per_row_instruction_prompt = f"""
                                 Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
 
@@ -312,16 +321,19 @@ if st.session_state.df_modified is not None:
                                             raise json.JSONDecodeError("No valid JSON found in response.", raw_response_text, 0)
 
 
-                                    st.session_state.gemini_per_row_results.append(json_analysis)
+                                    st.session_state.gemini_per_row_results.append({
+                                        "gemini_output": json_analysis,
+                                        "original_row_data": original_scores # Store the extracted scores
+                                    })
                                     per_row_summary_for_report.append(json.dumps(json_analysis))
 
                                 except json.JSONDecodeError as e:
                                     st.error(f"Error decoding JSON for row {row.name}: {e}\nRaw response: {raw_response_text}")
-                                    st.session_state.gemini_per_row_results.append({"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"})
+                                    st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"}, "original_row_data": original_scores})
                                     per_row_summary_for_report.append(f"Error for Row {row.name}: JSON decode error")
                                 except Exception as e:
                                     st.error(f"Error processing row {row.name} with Gemini: {e}")
-                                    st.session_state.gemini_per_row_results.append({"row_id": f"Row {row.name}", "error": f"General error: {e}"})
+                                    st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"General error: {e}"}, "original_row_data": original_scores})
                                     per_row_summary_for_report.append(f"Error for Row {row.name}: General error")
 
                             status_placeholder.empty()
@@ -404,19 +416,70 @@ if st.session_state.df_modified is not None:
 
                 with st.container(height=300, border=True):
                     if st.session_state.gemini_per_row_results:
-                        for idx, result_dict in enumerate(st.session_state.gemini_per_row_results):
+                        for idx, item_data in enumerate(st.session_state.gemini_per_row_results):
                             display_row_index = st.session_state.current_row_start_index + idx
                             
-                            category_name = result_dict.get('category_name', 'N/A Category')
-                            explanation = result_dict.get('explanation', 'No explanation provided.')
+                            # Access the nested data
+                            gemini_output = item_data.get('gemini_output', {})
+                            original_row_data = item_data.get('original_row_data', {})
+
+                            # Extract details for display from gemini_output
+                            category_name = gemini_output.get('category_name', 'N/A Category')
+                            explanation = gemini_output.get('explanation', 'No explanation provided.')
                             
                             expander_title_suffix = category_name
-                            display_content = f"**Risk Level:** {result_dict.get('risk_level', 'N/A')}\n\n" \
-                                              f"**Estimated Tenure if Terminated:** {result_dict.get('estimated_tenure', 'N/A')}\n\n" \
+                            display_content = f"**Risk Level:** {gemini_output.get('risk_level', 'N/A')}\n\n" \
+                                              f"**Estimated Tenure if Terminated:** {gemini_output.get('estimated_tenure', 'N/A')}\n\n" \
                                               f"**Explanation:** {explanation}"
 
                             with st.expander(f"Row {display_row_index}: {expander_title_suffix}"):
                                 st.markdown(display_content)
+                                
+                                # --- START ADDITION: Individual Score Plot ---
+                                # Check if all required score columns are present and if there's any data
+                                all_scores_present = all(col in original_row_data for col in SCORE_COLUMNS_FOR_PLOT)
+                                
+                                if all_scores_present and original_row_data:
+                                    st.markdown("---") # Separator for visual clarity
+                                    st.markdown("**Individual Score Profile:**")
+                                    
+                                    # Prepare data for this specific row's bar chart
+                                    # Filter to ensure only defined SCORE_COLUMNS_FOR_PLOT are used
+                                    plot_data_for_row = []
+                                    for attr in SCORE_COLUMNS_FOR_PLOT:
+                                        if attr in original_row_data: # Double check presence
+                                            plot_data_for_row.append({'Attribute': attr, 'Value': original_row_data[attr]})
+                                    
+                                    if plot_data_for_row: # Ensure there's data to plot
+                                        plot_df = pd.DataFrame(plot_data_for_row)
+                                        
+                                        fig_scores = px.bar(
+                                            plot_df,
+                                            x='Value',
+                                            y='Attribute',
+                                            orientation='h',
+                                            labels={'Value': 'Score Value', 'Attribute': 'Attribute'},
+                                            height=300, # Small plot
+                                            range_x=[0, 100], # Standardize score range from 0 to 100
+                                            color='Value', # Color bars based on their value
+                                            color_continuous_scale=px.colors.sequential.Plasma # Use a continuous color scale
+                                        )
+                                        fig_scores.update_layout(
+                                            showlegend=False, # No legend needed for single-row plot
+                                            margin=dict(l=0, r=0, t=0, b=0), # Tight margins
+                                            plot_bgcolor='rgba(0,0,0,0)', # Transparent background
+                                            paper_bgcolor='rgba(0,0,0,0)' # Transparent paper background
+                                        )
+                                        fig_scores.update_xaxes(showgrid=False) # Hide x-axis grid lines for cleaner look
+                                        fig_scores.update_yaxes(showgrid=False, categoryorder='total ascending') # Hide y-axis grid lines, sort attributes consistently
+                                        
+                                        st.plotly_chart(fig_scores, use_container_width=True)
+                                    else:
+                                        st.info("No numerical score data found for plotting in this employee's row.")
+                                else:
+                                    st.info("Score profile not available for this employee (missing required score attributes).")
+                                # --- END ADDITION: Individual Score Plot ---
+
                     else:
                         st.info("No per-row results to display yet. Run the Gemini Model to see results here.")
 
