@@ -8,16 +8,13 @@ import json
 import plotly.express as px
 from collections import Counter
 
-# --- API Key Management (IMPORTANT for Hosting) ---
-# It's best practice to store API keys in Streamlit Secrets for deployment.
-# Create a file named .streamlit/secrets.toml in your app's root directory
-# and add your GEMINI_API_KEY = "your_actual_api_key_here" inside it.
+
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 except KeyError:
     st.warning("GEMINI_API_KEY not found in Streamlit Secrets. "
                "Please add it to .streamlit/secrets.toml or set it as an environment variable.")
-    GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE" # Fallback for local testing if not using secrets
+    GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
 
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
@@ -428,7 +425,7 @@ if st.session_state.df_modified is not None:
                 st.subheader("Comprehensive Analysis Report")
                 st.markdown(st.session_state.gemini_overall_report)
             else:
-                st.info("After running the Gemini model, a comprehensive analysis report will appear here, offering insights and recommendations.")
+                st.info("After running the Gemini model, a comprehensive analysis report along with some graphs will appear here, offering insights and recommendations.")
             
             # --- Start Graph Generation: Risk Category Distribution ---
             if st.session_state.gemini_per_row_results:
@@ -522,11 +519,7 @@ if st.session_state.df_modified is not None:
                 fig_bar.update_yaxes(showgrid=False) # Hide y-axis grid lines
 
                 st.plotly_chart(fig_bar, use_container_width=True)
-
-            else:
-                st.info("Run the Gemini Model to see the Risk Category Distribution graph here.")
-            # --- End Graph Generation ---
-
+                
         with col2:
             st.subheader("Pure Stats Model (Coming Soon)")
             st.info("This section will feature an advanced Machine Learning model for comparison, offering insights based on statistical patterns and predictive analytics.")
