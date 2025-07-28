@@ -262,7 +262,25 @@ if st.session_state.df_modified is not None:
                                 for col in SCORE_COLUMNS_FOR_PLOT:
                                     if col in row and pd.api.types.is_numeric_dtype(row[col]):
                                         original_scores[col] = row[col]
-                                        
+                                st.write(f"DEBUG for Row {row.name}:")
+                                for debug_col in SCORE_COLUMNS_FOR_PLOT:
+                                    is_present = debug_col in row
+                                    val = None
+                                    col_dtype = None
+                                    is_numeric_check_passed = False
+                                    
+                                    if is_present:
+                                        val = row[debug_col]
+                                        col_dtype = type(val)
+                                        is_numeric_check_passed = pd.api.types.is_numeric_dtype(val)
+                                    
+                                    st.write(f"  Column '{debug_col}': Present={is_present}, Value='{val}', Type={col_dtype}, IsNumericDtype={is_numeric_check_passed}")
+                                    if is_present and not is_numeric_check_passed:
+                                        st.write(f"    (Reason for non-numeric: Check CSV for non-number characters in this column!)")
+
+                                st.write(f"  Final original_scores for Row {row.name}: {original_scores}")
+                                st.write(f"  All scores present check result before plot: {all(col in original_scores for col in SCORE_COLUMNS_FOR_PLOT)}")
+                                      
                                 per_row_instruction_prompt = f"""
                                 Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
 
