@@ -240,10 +240,9 @@ if st.session_state.df_modified is not None:
 
         with col1:
             st.subheader("Gemini Decision Tree Model")
-            if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+            if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE": 
                 st.info("Please set your Gemini API key in `.streamlit/secrets.toml` to enable this model.")
-            # Ensure df_modified is not None and has rows to process
-            elif st.session_state.df_modified is not None and not st.session_state.df_modified.empty:
+            elif not current_rows_df.empty:
                 model = get_gemini_model()
                 if model:
                     if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
@@ -251,111 +250,100 @@ if st.session_state.df_modified is not None:
                             per_row_summary_for_report = []
                             st.session_state.gemini_per_row_results = []
 
-                            # Get the total number of rows in the *entire modified DataFrame*
-                            # as the "Run Gemini Model" button should process all chosen rows.
-                            total_rows_to_process = len(st.session_state.df_modified) 
-                            
-                            # 'num_rows_to_send' is your 'X' value (e.g., 10 for groups of 10)
-                            num_rows_per_batch = num_rows_to_send 
-                            
-                            # Calculate the number of batches needed
-                            num_batches = (total_rows_to_process + num_rows_per_batch - 1) // num_rows_per_batch
-                            
+                            total_rows_to_process = len(current_rows_df)
                             status_placeholder = st.empty()
 
-                            # Loop through the DataFrame in batches
-                            for batch_idx in range(num_batches):
-                                start_idx = batch_idx * num_rows_per_batch
-                                end_idx = min(start_idx + num_rows_per_batch, total_rows_to_process)
+                            for idx, (_, row) in enumerate(current_rows_df.iterrows()):
+                                current_processing_index = idx + 1
+                                status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
+
+                                row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
+                                original_scores = {}
+                                for col in SCORE_COLUMNS_FOR_PLOT:
+                                    if col in row:
+                                        value = row[col]
+                                        # Attempt to convert the value to numeric.
+                                        # 'coerce' will turn non-numeric values (like "N/A" or "abc") into NaN
+                                        numeric_value = pd.to_numeric(value, errors='coerce')
+                                        
+                                        # Check if the conversion was successful (i.e., not NaN)
+                                        if pd.notna(numeric_value):
+                                            original_scores[col] = numeric_value
+                                      
+                                per_row_instruction_prompt = f"""
+                                Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
+
+                                Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
+                                analyze this single row of CSV data.
+                                Determine the exact "category" (e.g., "Category 7: The Volatile Performer")
+                                that the employee falls into, applying the rules hierarchically from Category 7 down to 0.
                                 
-                                # Extract the current batch of rows from the modified DataFrame
-                                current_batch_df = st.session_state.df_modified.iloc[start_idx:end_idx]
+                                Then, provide a concise, one-line explanation *why* that specific category was assigned,
+                                referencing the data criteria that led to that classification.
+                                
+                                Additionally, extract the `Risk Level` and `Estimated Tenure if Terminated` directly from the assigned category's description in the rulebook.
 
-                                # Update the status message to show current batch progress
-                                status_placeholder.info(f"Processing batch {batch_idx + 1} of {num_batches}: original rows {start_idx} to {end_idx - 1}...")
+                                --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+                                {DECISION_TREE_RULEBOOK}
+                                --- End of Rulebook ---
 
-                                # Iterate through the rows within the current batch
-                                for idx_in_batch, (_, row) in enumerate(current_batch_df.iterrows()):
-                                    # Use row.name to get the original DataFrame index for accuracy
-                                    original_row_id = row.name 
-                                    
-                                    row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
-                                    original_scores = {}
-                                    for col in SCORE_COLUMNS_FOR_PLOT:
-                                        if col in row:
-                                            value = row[col]
-                                            numeric_value = pd.to_numeric(value, errors='coerce')
-                                            if pd.notna(numeric_value):
-                                                original_scores[col] = numeric_value
+                                --- Employee Data (CSV) ---
+                                {row_csv_string}
+                                --- End of Employee Data ---
 
-                                    per_row_instruction_prompt = f"""
-                                    Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
+                                The JSON object must have the following keys:
+                                `row_id`: The original row identifier (e.g., "Row {row.name}")
+                                `category_name`: The full category name (e.g., "Category 7: The Volatile Performer")
+                                `risk_level`: The risk level from the rulebook for that category (e.g., "Highest Risk")
+                                `estimated_tenure`: The estimated tenure from the rulebook for that category (e.g., "1 - 5 Months")
+                                `explanation`: A concise, one-line explanation why this category was assigned.
 
-                                    Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
-                                    analyze this single row of CSV data.
-                                    Determine the exact "category" (e.g., "Category 7: The Volatile Performer")
-                                    that the employee falls into, applying the rules hierarchically from Category 7 down to 0.
-                                    
-                                    Then, provide a concise, one-line explanation *why* that specific category was assigned,
-                                    referencing the data criteria that led to that classification.
-                                    
-                                    Additionally, extract the `Risk Level` and `Estimated Tenure if Terminated` directly from the assigned category's description in the rulebook.
+                                Example JSON Output for Row 1:
+                                {{
+                                  "row_id": "Row 1",
+                                  "category_name": "Category 4: The Burnout Risk",
+                                  "risk_level": "Elevated",
+                                  "estimated_tenure": "1 - 4 Months",
+                                  "explanation": "Met criteria for high Conscientious (>80) and Achievement (>90) but very low Work Ethic/Duty (<15)."
+                                }}
+                                """
+                                
+                                try:
+                                    response = model.generate_content(per_row_instruction_prompt)
+                                    raw_response_text = response.text.strip() # Get the raw text
 
-                                    --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
-                                    {DECISION_TREE_RULEBOOK}
-                                    --- End of Rulebook ---
-
-                                    --- Employee Data (CSV) ---
-                                    {row_csv_string}
-                                    --- End of Employee Data ---
-
-                                    The JSON object must have the following keys:
-                                    `row_id`: The original row identifier (e.g., "Row {original_row_id}")
-                                    `category_name`: The full category name (e.g., "Category 7: The Volatile Performer")
-                                    `risk_level`: The risk level from the rulebook for that category (e.g., "Highest Risk")
-                                    `estimated_tenure`: The estimated tenure from the rulebook for that category (e.g., "1 - 5 Months")
-                                    `explanation`: A concise, one-line explanation why this category was assigned.
-
-                                    Example JSON Output for Row 1:
-                                    {{
-                                      "row_id": "Row 1",
-                                      "category_name": "Category 4: The Burnout Risk",
-                                      "risk_level": "Elevated",
-                                      "estimated_tenure": "1 - 4 Months",
-                                      "explanation": "Met criteria for high Conscientious (>80) and Achievement (>90) but very low Work Ethic/Duty (<15)."
-                                    }}
-                                    """
+                                    # Attempt to clean and parse JSON
+                                    json_analysis = {}
                                     try:
-                                        response = model.generate_content(per_row_instruction_prompt)
-                                        raw_response_text = response.text.strip()
+                                        # Try loading directly first (ideal)
+                                        json_analysis = json.loads(raw_response_text)
+                                    except json.JSONDecodeError:
+                                        # If direct load fails, try to extract from markdown block
+                                        json_match = re.search(r"```json\s*(\{.*\})\s*```", raw_response_text, re.DOTALL)
+                                        if json_match:
+                                            json_string = json_match.group(1)
+                                            json_analysis = json.loads(json_string)
+                                        else:
+                                            # If still no valid JSON, raise error to be caught below
+                                            raise json.JSONDecodeError("No valid JSON found in response.", raw_response_text, 0)
 
-                                        json_analysis = {}
-                                        try:
-                                            json_analysis = json.loads(raw_response_text)
-                                        except json.JSONDecodeError:
-                                            json_match = re.search(r"```json\s*(\{.*\})\s*```", raw_response_text, re.DOTALL)
-                                            if json_match:
-                                                json_string = json_match.group(1)
-                                                json_analysis = json.loads(json_string)
-                                            else:
-                                                raise json.JSONDecodeError("No valid JSON found in response.", raw_response_text, 0)
 
-                                        st.session_state.gemini_per_row_results.append({
-                                            "gemini_output": json_analysis,
-                                            "original_row_data": original_scores
-                                        })
-                                        per_row_summary_for_report.append(json.dumps(json_analysis))
+                                    st.session_state.gemini_per_row_results.append({
+                                        "gemini_output": json_analysis,
+                                        "original_row_data": original_scores # Store the extracted scores
+                                    })
+                                    per_row_summary_for_report.append(json.dumps(json_analysis))
 
-                                    except json.JSONDecodeError as e:
-                                        st.error(f"Error decoding JSON for original row {original_row_id}: {e}\nRaw response: {raw_response_text}")
-                                        st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {original_row_id}", "error": f"JSON decode error: {e}"}, "original_row_data": original_scores})
-                                        per_row_summary_for_report.append(f"Error for Row {original_row_id}: JSON decode error")
-                                    except Exception as e:
-                                        st.error(f"Error processing original row {original_row_id} with Gemini: {e}")
-                                        st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {original_row_id}", "error": f"General error: {e}"}, "original_row_data": original_scores})
-                                        per_row_summary_for_report.append(f"Error for Row {original_row_id}: General error")
+                                except json.JSONDecodeError as e:
+                                    st.error(f"Error decoding JSON for row {row.name}: {e}\nRaw response: {raw_response_text}")
+                                    st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"}, "original_row_data": original_scores})
+                                    per_row_summary_for_report.append(f"Error for Row {row.name}: JSON decode error")
+                                except Exception as e:
+                                    st.error(f"Error processing row {row.name} with Gemini: {e}")
+                                    st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"General error: {e}"}, "original_row_data": original_scores})
+                                    per_row_summary_for_report.append(f"Error for Row {row.name}: General error")
 
-                            status_placeholder.empty() # Clear the batch processing status after all batches are done
+                            status_placeholder.empty()
 
                             if per_row_summary_for_report:
                                 status_placeholder.info("Generating comprehensive aggregate report...")
@@ -397,7 +385,7 @@ if st.session_state.df_modified is not None:
                                 Highlight any noteworthy patterns or unusual observations from the classification results. This can include:
                                 - Categories that have surprisingly high or low (including zero) counts.
                                 - Any instances where employees narrowly missed a different category based on their scores.
-                                - Specific data criteria (e.g., 'Withholding', 'Score', 'GYR', 'Work Ethic/Duty', 'Integrity', 'Conscientious', 'Organized', 'Achievement', 'Manipulative') that appear to be strong drivers for certain classifications in this dataset.
+                                - Specific data criteria (e.g., 'Withholding', 'Score', 'GYR') that appear to be strong drivers for certain classifications in this dataset.
                                 - Mention any rows that stand out as exceptions or confirm specific model behaviors.
 
                                 **4. Actionable Insights and Recommendations:**
@@ -423,8 +411,8 @@ if st.session_state.df_modified is not None:
                                 status_placeholder.empty()
                 else:
                     st.warning("Gemini model not initialized. Please check your API key.")
-            else: # Updated to handle empty df_modified as well
-                st.info("Upload a CSV and ensure there's data to process to run the Gemini Model.")
+            else:
+                st.info("Upload a CSV and select rows to run the Gemini Model.")
 
             st.markdown("---")
             st.subheader("Gemini Model Analysis Results:")
@@ -436,15 +424,13 @@ if st.session_state.df_modified is not None:
                 with st.container(height=300, border=True):
                     if st.session_state.gemini_per_row_results:
                         for idx, item_data in enumerate(st.session_state.gemini_per_row_results):
-                            # Corrected display_row_index to show actual DataFrame index
-                            display_row_index = item_data.get('gemini_output', {}).get('row_id', f"Row {idx}") 
-                            # If row_id is in format "Row X", extract X. Otherwise, use plain index.
-                            if isinstance(display_row_index, str) and display_row_index.startswith("Row "):
-                                display_row_index = display_row_index.split(" ")[1] # Extract the number part
+                            display_row_index = st.session_state.current_row_start_index + idx
                             
+                            # Access the nested data
                             gemini_output = item_data.get('gemini_output', {})
                             original_row_data = item_data.get('original_row_data', {})
 
+                            # Extract details for display from gemini_output
                             category_name = gemini_output.get('category_name', 'N/A Category')
                             explanation = gemini_output.get('explanation', 'No explanation provided.')
                             
@@ -453,43 +439,54 @@ if st.session_state.df_modified is not None:
                                               f"**Estimated Tenure if Terminated:** {gemini_output.get('estimated_tenure', 'N/A')}\n\n" \
                                               f"**Explanation:** {explanation}"
 
-                            with st.expander(f"Original Row Index {display_row_index}: {expander_title_suffix}"): # Updated expander title
+                            with st.expander(f"Row {display_row_index}: {expander_title_suffix}"):
                                 st.markdown(display_content)
                                 
                                 # --- START ADDITION: Individual Score Plot ---
-                                plot_data_for_row = []
-                                for attr in SCORE_COLUMNS_FOR_PLOT:
-                                    if attr in original_row_data:
-                                        plot_data_for_row.append({'Attribute': attr, 'Value': original_row_data[attr]})
+                                # Check if all required score columns are present and if there's any data
+                                all_scores_present = all(col in original_row_data for col in SCORE_COLUMNS_FOR_PLOT)
                                 
-                                if plot_data_for_row:
-                                    st.markdown("---")
+                                if all_scores_present and original_row_data:
+                                    st.markdown("---") # Separator for visual clarity
                                     st.markdown("**Individual Score Profile:**")
-                                    plot_df = pd.DataFrame(plot_data_for_row)
                                     
-                                    fig_scores = px.bar(
-                                        plot_df,
-                                        x='Value',
-                                        y='Attribute',
-                                        orientation='h',
-                                        labels={'Value': 'Score Value', 'Attribute': 'Attribute'},
-                                        height=300,
-                                        range_x=[0, 100],
-                                        color='Value',
-                                        color_continuous_scale=px.colors.sequential.Plasma
-                                    )
-                                    fig_scores.update_layout(
-                                        showlegend=False,
-                                        margin=dict(l=0, r=0, t=0, b=0),
-                                        plot_bgcolor='rgba(0,0,0,0)',
-                                        paper_bgcolor='rgba(0,0,0,0)'
-                                    )
-                                    fig_scores.update_xaxes(showgrid=False)
-                                    fig_scores.update_yaxes(showgrid=False, categoryorder='total ascending')
+                                    # Prepare data for this specific row's bar chart
+                                    # Filter to ensure only defined SCORE_COLUMNS_FOR_PLOT are used
+                                    plot_data_for_row = []
+                                    for attr in SCORE_COLUMNS_FOR_PLOT:
+                                        if attr in original_row_data: # Double check presence
+                                            plot_data_for_row.append({'Attribute': attr, 'Value': original_row_data[attr]})
                                     
-                                    st.plotly_chart(fig_scores, use_container_width=True, key=f"score_plot_{original_row_id}") # Changed key for uniqueness
+                                    if plot_data_for_row: # Ensure there's data to plot
+                                        plot_df = pd.DataFrame(plot_data_for_row)
+                                        
+                                        fig_scores = px.bar(
+                                            plot_df,
+                                            x='Value',
+                                            y='Attribute',
+                                            orientation='h',
+                                            labels={'Value': 'Score Value', 'Attribute': 'Attribute'},
+                                            height=300, # Small plot
+                                            range_x=[0, 100], # Standardize score range from 0 to 100
+                                            color='Value', # Color bars based on their value
+                                            color_continuous_scale=px.colors.sequential.Plasma # Use a continuous color scale
+                                        )
+                                        fig_scores.update_layout(
+                                            showlegend=False, # No legend needed for single-row plot
+                                            margin=dict(l=0, r=0, t=0, b=0), # Tight margins
+                                            plot_bgcolor='rgba(0,0,0,0)', # Transparent background
+                                            paper_bgcolor='rgba(0,0,0,0)' # Transparent paper background
+                                        )
+                                        fig_scores.update_xaxes(showgrid=False) # Hide x-axis grid lines for cleaner look
+                                        fig_scores.update_yaxes(showgrid=False, categoryorder='total ascending') # Hide y-axis grid lines, sort attributes consistently
+                                        
+                                        st.plotly_chart(fig_scores, use_container_width=True, key=f"score_plot_{display_row_index}")
+                                    else:
+                                        st.info("No numerical score data found for plotting in this employee's row.")
                                 else:
-                                    st.info("No numerical score data found for plotting in this employee's row.")
+                                    st.info("Score profile not available for this employee (missing required score attributes).")
+                                # --- END ADDITION: Individual Score Plot ---
+
                     else:
                         st.info("No per-row results to display yet. Run the Gemini Model to see results here.")
 
@@ -506,6 +503,7 @@ if st.session_state.df_modified is not None:
                 st.subheader("Risk Category Distribution")
                 st.write("This chart shows the number of employees falling into each risk category based on the Gemini Model's classification.")
             
+                # Define the explicit order of categories by risk level for plotting
                 category_order = [
                     "Category 7: The Volatile Performer",
                     "Category 6: The Mismatch",
@@ -517,6 +515,7 @@ if st.session_state.df_modified is not None:
                     "Category 0: The Steady Performer"
                 ]
             
+                # Define a color map for risk levels
                 risk_color_map = {
                     "Highest Risk": "darkred",
                     "Critical": "red",
@@ -526,82 +525,177 @@ if st.session_state.df_modified is not None:
                     "Moderate": "yellowgreen",
                     "Moderate-Low": "limegreen",
                     "Low": "darkgreen",
-                    "N/A": "gray"
+                    "N/A": "gray" # Fallback for categories not explicitly mapped
                 }
             
+                # Prepare data for the bar chart
                 category_counts = Counter()
-                category_risk_mapping = {}
-
                 for item_data in st.session_state.gemini_per_row_results:
+                    # --- FIX: Access nested 'gemini_output' dictionary ---
                     gemini_output = item_data.get('gemini_output', {})
                     category_name = gemini_output.get('category_name')
-                    risk_level = gemini_output.get('risk_level')
+                    # --- END FIX ---
+            
                     
+            
                     if category_name:
                         category_counts[category_name] += 1
-                        if risk_level:
-                            category_risk_mapping[category_name] = risk_level
                     else:
                         category_counts["Error/Missing Category"] += 1
-                        category_risk_mapping["Error/Missing Category"] = "N/A"
             
+                
+            
+                # Convert Counter to DataFrame
                 df_category_distribution = pd.DataFrame(category_counts.items(), columns=['Category', 'Count'])
             
-                full_categories_df = pd.DataFrame({'Category': category_order})
                 
-                df_category_distribution = pd.merge(full_categories_df, df_category_distribution, on='Category', how='left').fillna({'Count': 0})
+            
+                # Add Risk Level for coloring and sorting
+                category_risk_mapping = {}
+                for item_data in st.session_state.gemini_per_row_results:
+                    # --- FIX: Access nested 'gemini_output' dictionary ---
+                    gemini_output = item_data.get('gemini_output', {})
+                    category = gemini_output.get('category_name')
+                    risk_level = gemini_output.get('risk_level')
+                    # --- END FIX ---
+                    if category and risk_level:
+                        category_risk_mapping[category] = risk_level
                 
                 df_category_distribution['Risk_Level'] = df_category_distribution['Category'].map(category_risk_mapping).fillna("N/A")
-
+            
+                # Ensure all categories from the order are in the DataFrame, even if count is 0
+                full_categories = pd.DataFrame({'Category': category_order})
+                df_category_distribution = pd.merge(full_categories, df_category_distribution, on='Category', how='left').fillna({'Count': 0, 'Risk_Level': 'N/A'})
+                
+                
+            
+                # Sort categories for consistent plotting order (highest risk at top for horizontal chart)
                 df_category_distribution['Category'] = pd.Categorical(
                     df_category_distribution['Category'],
                     categories=category_order,
                     ordered=True
                 )
-                df_category_distribution = df_category_distribution.sort_values('Category', ascending=False)
+                df_category_distribution = df_category_distribution.sort_values('Category', ascending=False) 
             
-                if df_category_distribution['Count'].sum() > 0:
+                # Check if there's any data to plot before creating figure
+                if df_category_distribution['Count'].sum() > 0: # Only plot if total count is greater than zero
                     fig_bar = px.bar(
                         df_category_distribution,
                         x='Count',
                         y='Category',
                         title='Number of Employees Per Risk Category',
-                        color='Risk_Level',
-                        color_discrete_map=risk_color_map,
-                        orientation='h',
-                        text='Count',
+                        color='Risk_Level', # Color by Risk Level
+                        color_discrete_map=risk_color_map, # Apply custom color map
+                        orientation='h', # Horizontal bars
+                        text='Count', # Show count on bars
                         labels={'Category': 'Risk Category', 'Count': 'Number of Employees'}
                     )
             
-                    fig_bar.update_traces(textposition='outside')
+                    fig_bar.update_traces(textposition='outside') # Position text outside bars
                     fig_bar.update_layout(
                         showlegend=True,
+                        # Ensure y-axis order matches our specified order
                         yaxis={'categoryorder':'array', 'categoryarray':list(df_category_distribution['Category'].astype(str))},
                         xaxis_title="Number of Employees",
-                        margin=dict(l=0, r=0, t=40, b=0),
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)'
+                        margin=dict(l=0, r=0, t=40, b=0), # Adjust margins for better fit
+                        plot_bgcolor='rgba(0,0,0,0)', # Transparent background
+                        paper_bgcolor='rgba(0,0,0,0)' # Transparent paper background
                     )
-                    fig_bar.update_xaxes(showgrid=False)
-                    fig_bar.update_yaxes(showgrid=False)
+                    fig_bar.update_xaxes(showgrid=False) # Hide x-axis grid lines
+                    fig_bar.update_yaxes(showgrid=False) # Hide y-axis grid lines
             
                     st.plotly_chart(fig_bar, use_container_width=True, key="category_distribution_plot")
                 else:
                     st.info("No employee data classified into categories for the distribution chart.")
             else:
                 st.info("Run the Gemini Model to see the Risk Category Distribution graph here.")
-            
+            # --- Start Graph Generation: Estimated Tenure Distribution (New Plot) ---
+            if st.session_state.gemini_per_row_results:
+                st.markdown("---")
+                st.subheader("Estimated Termination Tenure Distribution")
+                st.write("This chart visualizes the predicted tenure ranges for employees flagged with attrition risk. Overlapping bars indicate multiple groups of employees sharing similar termination timeframes.")
+
+                # Data preparation for the new plot
+                tenure_data = []
+                for item_data in st.session_state.gemini_per_row_results:
+                    gemini_output = item_data.get('gemini_output', {})
+                    category_name = gemini_output.get('category_name')
+                    estimated_tenure = gemini_output.get('estimated_tenure')
+                    
+                    # Only include categories with an estimated tenure (i.e., not "N/A" for Category 0)
+                    if estimated_tenure and "N/A" not in estimated_tenure and "Category 0" not in category_name:
+                        # Parse the range
+                        match = re.search(r"(\d+)\s*-\s*(\d+)\s*Months", estimated_tenure)
+                        if match:
+                            min_months = int(match.group(1))
+                            max_months = int(match.group(2))
+                            tenure_data.append({
+                                'Category': category_name,
+                                'MinMonth': min_months,
+                                'MaxMonth': max_months,
+                                'Range': estimated_tenure # Keep original string for hover
+                            })
+                
+                if tenure_data:
+                    # Aggregate counts for each unique tenure range
+                    df_tenure_ranges = pd.DataFrame(tenure_data)
+                    df_tenure_counts = df_tenure_ranges.groupby(['Range', 'MinMonth', 'MaxMonth', 'Category']).size().reset_index(name='Count')
+                    
+                    # Sort for better visual consistency
+                    df_tenure_counts = df_tenure_counts.sort_values(by='MinMonth')
+
+                    # Max month for x-axis range
+                    max_x = df_tenure_counts['MaxMonth'].max() if not df_tenure_counts.empty else 12
+                    max_x = max(max_x, 12) # Ensure at least 12 months for scale
+
+                    # Use plotly.graph_objects for better control over range bars
+                    import plotly.graph_objects as go
+
+                    fig_tenure = go.Figure()
+
+                    for index, row in df_tenure_counts.iterrows():
+                        fig_tenure.add_trace(go.Bar(
+                            x=[row['MinMonth'] + (row['MaxMonth'] - row['MinMonth']) / 2], # Center of the bar
+                            y=[row['Count']],
+                            width=[row['MaxMonth'] - row['MinMonth']], # Width of the bar represents the range
+                            name=row['Range'], # Name for legend
+                            marker_color=px.colors.qualitative.Plotly[index % len(px.colors.qualitative.Plotly)], # Cycle colors
+                            opacity=0.6, # Translucency for overlapping effect
+                            hovertemplate=f"Category: {row['Category']}<br>Tenure Range: {row['Range']}<br>Employees: {row['Count']}<extra></extra>"
+                        ))
+
+                    fig_tenure.update_layout(
+                        title_text='Estimated Termination Tenure Distribution',
+                        xaxis_title='Estimated Tenure (Months)',
+                        yaxis_title='Number of Employees',
+                        xaxis_range=[0, max_x + 1], # Add some padding
+                        barmode='overlay', # Crucial for overlapping bars
+                        showlegend=True,
+                        legend_title_text='Tenure Ranges',
+                        plot_bgcolor='rgba(0,0,0,0)',
+                        paper_bgcolor='rgba(0,0,0,0)'
+                    )
+                    fig_tenure.update_xaxes(showgrid=True, gridcolor='lightgray')
+                    fig_tenure.update_yaxes(showgrid=True, gridcolor='lightgray')
+
+                    st.plotly_chart(fig_tenure, use_container_width=True, key="tenure_distribution_plot")
+                else:
+                    st.info("No estimated termination tenure data to display for this selection.")
+            else:
+                st.info("Run the Gemini Model to see the Estimated Termination Tenure Distribution graph here.")
+            # --- End Graph Generation ---
+                
         with col2:
             st.subheader("Pure Stats Model (Coming Soon)")
             st.info("This section will feature an advanced Machine Learning model for comparison, offering insights based on statistical patterns and predictive analytics.")
-            st.markdown("---")
-            st.subheader("Pure Stats Model Analysis Results:")
+            st.markdown("---") 
+            st.subheader("Pure Stats Model Analysis Results:") 
             st.write("Results from the Pure Stats Model will be displayed here for side-by-side comparison with the Gemini Model's output.")
             st.info("Run the Pure Stats Model (when available) to see analysis results here.")
 
     with st.container(border=True):
         st.header("CSV Actions")
-        st.write("Manage your uploaded CSV data. You can revert to the original data or download the currently annotated version.")
+        st.write("Manage your uploaded CSV data. You can revert to the original data or download the currently annotated version.") # Added description
         col_actions1, col_actions2 = st.columns(2)
         with col_actions1:
             if st.button("Reset CSV to Original"):
@@ -611,7 +705,6 @@ if st.session_state.df_modified is not None:
                     clear_gemini_results()
                     st.success("CSV reset to original state!")
                     st.dataframe(st.session_state.df_modified.head())
-                    st.rerun()
                 else:
                     st.warning("No original CSV to reset to.")
         with col_actions2:
