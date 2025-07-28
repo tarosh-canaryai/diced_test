@@ -510,7 +510,7 @@ if st.session_state.df_modified is not None:
                                         fig_scores.update_xaxes(showgrid=False) # Hide x-axis grid lines for cleaner look
                                         fig_scores.update_yaxes(showgrid=False, categoryorder='total ascending') # Hide y-axis grid lines, sort attributes consistently
                                         
-                                        st.plotly_chart(fig_scores, use_container_width=True)
+                                        st.plotly_chart(fig_scores, use_container_width=True, key=f"score_plot_{display_row_index}")
                                     else:
                                         st.info("No numerical score data found for plotting in this employee's row.")
                                 else:
@@ -618,7 +618,7 @@ if st.session_state.df_modified is not None:
                 fig_bar.update_xaxes(showgrid=False) # Hide x-axis grid lines
                 fig_bar.update_yaxes(showgrid=False) # Hide y-axis grid lines
 
-                st.plotly_chart(fig_bar, use_container_width=True)
+                st.plotly_chart(fig_bar, use_container_width=True, key="category_distribution_plot")
                 
         with col2:
             st.subheader("Pure Stats Model (Coming Soon)")
