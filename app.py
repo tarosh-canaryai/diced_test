@@ -251,26 +251,32 @@ if st.session_state.df_modified is not None:
                             per_row_summary_for_report = []
                             st.session_state.gemini_per_row_results = []
 
-                            total_selected_rows = len(st.session_state.df_modified)
-                            num_rows_per_batch = num_rows_to_send # This is your 'X' from the number_input
+                            # Get the total number of rows in the *entire modified DataFrame*
+                            # as the "Run Gemini Model" button should process all chosen rows.
+                            total_rows_to_process = len(st.session_state.df_modified) 
                             
-                            # Calculate the number of batches
-                            num_batches = (total_selected_rows + num_rows_per_batch - 1) // num_rows_per_batch
+                            # 'num_rows_to_send' is your 'X' value (e.g., 10 for groups of 10)
+                            num_rows_per_batch = num_rows_to_send 
+                            
+                            # Calculate the number of batches needed
+                            num_batches = (total_rows_to_process + num_rows_per_batch - 1) // num_rows_per_batch
                             
                             status_placeholder = st.empty()
 
-                            # Iterate through the DataFrame in batches
+                            # Loop through the DataFrame in batches
                             for batch_idx in range(num_batches):
                                 start_idx = batch_idx * num_rows_per_batch
-                                end_idx = min(start_idx + num_rows_per_batch, total_selected_rows)
+                                end_idx = min(start_idx + num_rows_per_batch, total_rows_to_process)
                                 
-                                # Get the current batch of rows
+                                # Extract the current batch of rows from the modified DataFrame
                                 current_batch_df = st.session_state.df_modified.iloc[start_idx:end_idx]
 
-                                status_placeholder.info(f"Processing batch {batch_idx + 1} of {num_batches}: rows {start_idx} to {end_idx - 1}...")
+                                # Update the status message to show current batch progress
+                                status_placeholder.info(f"Processing batch {batch_idx + 1} of {num_batches}: original rows {start_idx} to {end_idx - 1}...")
 
-                                for idx, (_, row) in enumerate(current_batch_df.iterrows()):
-                                    # Use row.name to get the original DataFrame index
+                                # Iterate through the rows within the current batch
+                                for idx_in_batch, (_, row) in enumerate(current_batch_df.iterrows()):
+                                    # Use row.name to get the original DataFrame index for accuracy
                                     original_row_id = row.name 
                                     
                                     row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
@@ -349,7 +355,7 @@ if st.session_state.df_modified is not None:
                                         st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {original_row_id}", "error": f"General error: {e}"}, "original_row_data": original_scores})
                                         per_row_summary_for_report.append(f"Error for Row {original_row_id}: General error")
 
-                            status_placeholder.empty() # Clear the batch processing status
+                            status_placeholder.empty() # Clear the batch processing status after all batches are done
 
                             if per_row_summary_for_report:
                                 status_placeholder.info("Generating comprehensive aggregate report...")
