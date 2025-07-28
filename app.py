@@ -19,7 +19,7 @@ except KeyError:
                "Please add it to .streamlit/secrets.toml or set it as an environment variable.")
     GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE" # Fallback for local testing if not using secrets
 
-GEMINI_MODEL_NAME = "gemini-2.0-flash"
+GEMINI_MODEL_NAME = "gemini-2.5-flash"
 
 st.set_page_config(layout="wide", page_title="Attrition & Hiring Risk Analyzer")
 
@@ -146,9 +146,6 @@ def clear_gemini_results():
     st.session_state.gemini_per_row_results = []
     st.session_state.gemini_overall_report = ""
 
-# Moved API Key status check into get_gemini_model for cleaner flow
-# if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
-#     st.warning("Please replace 'YOUR_GEMINI_API_KEY_HERE' in the script with your actual Gemini API Key to enable model functionality.")
 
 with st.container(border=True):
     st.header("Step 1: Upload Your CSV Data")
@@ -159,11 +156,6 @@ with st.container(border=True):
     elif uploaded_file is not None and uploaded_file.name != getattr(st.session_state.get('last_uploaded_filename'), 'name', ''):
         st.session_state.last_uploaded_filename = uploaded_file
         process_csv_upload(uploaded_file)
-
-    if st.session_state.df_modified is not None:
-        st.subheader("Currently Loaded Data (first 5 rows):")
-        st.dataframe(st.session_state.df_modified.head())
-
     
 
 if st.session_state.df_modified is not None:
