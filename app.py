@@ -536,25 +536,19 @@ if st.session_state.df_modified is not None:
                     category_name = gemini_output.get('category_name')
                     # --- END FIX ---
             
-                    # --- DEBUGGING INSERTION POINT A (for chart) ---
-                    st.write(f"DEBUG Chart Data: Processing row from state. Extracted category_name: '{category_name}'")
-                    # --- END INSERTION A ---
+                    
             
                     if category_name:
                         category_counts[category_name] += 1
                     else:
                         category_counts["Error/Missing Category"] += 1
             
-                # --- DEBUGGING INSERTION POINT B (for chart) ---
-                st.write(f"DEBUG Chart Data: Final category_counts before DataFrame: {category_counts}")
-                # --- END INSERTION B ---
+                
             
                 # Convert Counter to DataFrame
                 df_category_distribution = pd.DataFrame(category_counts.items(), columns=['Category', 'Count'])
             
-                # --- DEBUGGING INSERTION POINT C (for chart) ---
-                st.write(f"DEBUG Chart Data: df_category_distribution after initial creation:\n{df_category_distribution}")
-                # --- END INSERTION C ---
+                
             
                 # Add Risk Level for coloring and sorting
                 category_risk_mapping = {}
@@ -573,10 +567,7 @@ if st.session_state.df_modified is not None:
                 full_categories = pd.DataFrame({'Category': category_order})
                 df_category_distribution = pd.merge(full_categories, df_category_distribution, on='Category', how='left').fillna({'Count': 0, 'Risk_Level': 'N/A'})
                 
-                # --- DEBUGGING INSERTION POINT D (for chart) ---
-                st.write(f"DEBUG Chart Data: df_category_distribution after merge and fillna (final data):\n{df_category_distribution}")
-                st.write(f"DEBUG Chart Data: Total Count in final DataFrame: {df_category_distribution['Count'].sum()}")
-                # --- END INSERTION D ---
+                
             
                 # Sort categories for consistent plotting order (highest risk at top for horizontal chart)
                 df_category_distribution['Category'] = pd.Categorical(
