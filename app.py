@@ -260,45 +260,15 @@ if st.session_state.df_modified is not None:
                                 row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
                                 original_scores = {}
                                 for col in SCORE_COLUMNS_FOR_PLOT:
-                                    if col in row: # First, check if column exists in the row
+                                    if col in row:
                                         value = row[col]
-                                        
-                                        # --- FIX FOR IsNumericDtype=False ---
                                         # Attempt to convert the value to numeric.
-                                        # 'coerce' will turn non-numeric values into NaN (Not a Number)
+                                        # 'coerce' will turn non-numeric values (like "N/A" or "abc") into NaN
                                         numeric_value = pd.to_numeric(value, errors='coerce')
                                         
                                         # Check if the conversion was successful (i.e., not NaN)
                                         if pd.notna(numeric_value):
                                             original_scores[col] = numeric_value
-                                            # Debugging line:
-                                            st.write(f"  DEBUG: Successfully processed '{col}': {numeric_value}")
-                                        else:
-                                            # Debugging line:
-                                            st.write(f"  DEBUG: Skipped '{col}' as non-numeric after coercion: '{value}'")
-                                        # --- END FIX FOR IsNumericDtype=False ---
-                                    else:
-                                        # Debugging line:
-                                        st.write(f"  DEBUG: Column '{col}' not found in row {row.name} for plotting.")
-                                        
-                                st.write(f"DEBUG for Row {row.name}:")
-                                for debug_col in SCORE_COLUMNS_FOR_PLOT:
-                                    is_present = debug_col in row
-                                    val = None
-                                    col_dtype = None
-                                    is_numeric_check_passed = False
-                                    
-                                    if is_present:
-                                        val = row[debug_col]
-                                        col_dtype = type(val)
-                                        is_numeric_check_passed = pd.api.types.is_numeric_dtype(val)
-                                    
-                                    st.write(f"  Column '{debug_col}': Present={is_present}, Value='{val}', Type={col_dtype}, IsNumericDtype={is_numeric_check_passed}")
-                                    if is_present and not is_numeric_check_passed:
-                                        st.write(f"    (Reason for non-numeric: Check CSV for non-number characters in this column!)")
-
-                                st.write(f"  Final original_scores for Row {row.name}: {original_scores}")
-                                st.write(f"  All scores present check result before plot: {all(col in original_scores for col in SCORE_COLUMNS_FOR_PLOT)}")
                                       
                                 per_row_instruction_prompt = f"""
                                 Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
@@ -532,7 +502,7 @@ if st.session_state.df_modified is not None:
                 st.markdown("---")
                 st.subheader("Risk Category Distribution")
                 st.write("This chart shows the number of employees falling into each risk category based on the Gemini Model's classification.")
-
+            
                 # Define the explicit order of categories by risk level for plotting
                 category_order = [
                     "Category 7: The Volatile Performer",
@@ -544,7 +514,7 @@ if st.session_state.df_modified is not None:
                     "Category 1: The Apathetic Hire",
                     "Category 0: The Steady Performer"
                 ]
-
+            
                 # Define a color map for risk levels
                 risk_color_map = {
                     "Highest Risk": "darkred",
@@ -557,33 +527,57 @@ if st.session_state.df_modified is not None:
                     "Low": "darkgreen",
                     "N/A": "gray" # Fallback for categories not explicitly mapped
                 }
-
+            
                 # Prepare data for the bar chart
                 category_counts = Counter()
-                for result_dict in st.session_state.gemini_per_row_results:
-                    category_name = result_dict.get('category_name')
+                for item_data in st.session_state.gemini_per_row_results:
+                    # --- FIX: Access nested 'gemini_output' dictionary ---
+                    gemini_output = item_data.get('gemini_output', {})
+                    category_name = gemini_output.get('category_name')
+                    # --- END FIX ---
+            
+                    # --- DEBUGGING INSERTION POINT A (for chart) ---
+                    st.write(f"DEBUG Chart Data: Processing row from state. Extracted category_name: '{category_name}'")
+                    # --- END INSERTION A ---
+            
                     if category_name:
                         category_counts[category_name] += 1
                     else:
                         category_counts["Error/Missing Category"] += 1
-
+            
+                # --- DEBUGGING INSERTION POINT B (for chart) ---
+                st.write(f"DEBUG Chart Data: Final category_counts before DataFrame: {category_counts}")
+                # --- END INSERTION B ---
+            
                 # Convert Counter to DataFrame
                 df_category_distribution = pd.DataFrame(category_counts.items(), columns=['Category', 'Count'])
-
+            
+                # --- DEBUGGING INSERTION POINT C (for chart) ---
+                st.write(f"DEBUG Chart Data: df_category_distribution after initial creation:\n{df_category_distribution}")
+                # --- END INSERTION C ---
+            
                 # Add Risk Level for coloring and sorting
                 category_risk_mapping = {}
-                for result_dict in st.session_state.gemini_per_row_results:
-                    category = result_dict.get('category_name')
-                    risk_level = result_dict.get('risk_level')
+                for item_data in st.session_state.gemini_per_row_results:
+                    # --- FIX: Access nested 'gemini_output' dictionary ---
+                    gemini_output = item_data.get('gemini_output', {})
+                    category = gemini_output.get('category_name')
+                    risk_level = gemini_output.get('risk_level')
+                    # --- END FIX ---
                     if category and risk_level:
                         category_risk_mapping[category] = risk_level
                 
                 df_category_distribution['Risk_Level'] = df_category_distribution['Category'].map(category_risk_mapping).fillna("N/A")
-
+            
                 # Ensure all categories from the order are in the DataFrame, even if count is 0
                 full_categories = pd.DataFrame({'Category': category_order})
                 df_category_distribution = pd.merge(full_categories, df_category_distribution, on='Category', how='left').fillna({'Count': 0, 'Risk_Level': 'N/A'})
                 
+                # --- DEBUGGING INSERTION POINT D (for chart) ---
+                st.write(f"DEBUG Chart Data: df_category_distribution after merge and fillna (final data):\n{df_category_distribution}")
+                st.write(f"DEBUG Chart Data: Total Count in final DataFrame: {df_category_distribution['Count'].sum()}")
+                # --- END INSERTION D ---
+            
                 # Sort categories for consistent plotting order (highest risk at top for horizontal chart)
                 df_category_distribution['Category'] = pd.Categorical(
                     df_category_distribution['Category'],
@@ -591,34 +585,40 @@ if st.session_state.df_modified is not None:
                     ordered=True
                 )
                 df_category_distribution = df_category_distribution.sort_values('Category', ascending=False) 
-
-                # Create the bar chart
-                fig_bar = px.bar(
-                    df_category_distribution,
-                    x='Count',
-                    y='Category',
-                    title='Number of Employees Per Risk Category',
-                    color='Risk_Level', # Color by Risk Level
-                    color_discrete_map=risk_color_map, # Apply custom color map
-                    orientation='h', # Horizontal bars
-                    text='Count', # Show count on bars
-                    labels={'Category': 'Risk Category', 'Count': 'Number of Employees'}
-                )
-
-                fig_bar.update_traces(textposition='outside') # Position text outside bars
-                fig_bar.update_layout(
-                    showlegend=True,
-                    # Ensure y-axis order matches our specified order
-                    yaxis={'categoryorder':'array', 'categoryarray':list(df_category_distribution['Category'].astype(str))},
-                    xaxis_title="Number of Employees",
-                    margin=dict(l=0, r=0, t=40, b=0), # Adjust margins for better fit
-                    plot_bgcolor='rgba(0,0,0,0)', # Transparent background
-                    paper_bgcolor='rgba(0,0,0,0)' # Transparent paper background
-                )
-                fig_bar.update_xaxes(showgrid=False) # Hide x-axis grid lines
-                fig_bar.update_yaxes(showgrid=False) # Hide y-axis grid lines
-
-                st.plotly_chart(fig_bar, use_container_width=True, key="category_distribution_plot")
+            
+                # Check if there's any data to plot before creating figure
+                if df_category_distribution['Count'].sum() > 0: # Only plot if total count is greater than zero
+                    fig_bar = px.bar(
+                        df_category_distribution,
+                        x='Count',
+                        y='Category',
+                        title='Number of Employees Per Risk Category',
+                        color='Risk_Level', # Color by Risk Level
+                        color_discrete_map=risk_color_map, # Apply custom color map
+                        orientation='h', # Horizontal bars
+                        text='Count', # Show count on bars
+                        labels={'Category': 'Risk Category', 'Count': 'Number of Employees'}
+                    )
+            
+                    fig_bar.update_traces(textposition='outside') # Position text outside bars
+                    fig_bar.update_layout(
+                        showlegend=True,
+                        # Ensure y-axis order matches our specified order
+                        yaxis={'categoryorder':'array', 'categoryarray':list(df_category_distribution['Category'].astype(str))},
+                        xaxis_title="Number of Employees",
+                        margin=dict(l=0, r=0, t=40, b=0), # Adjust margins for better fit
+                        plot_bgcolor='rgba(0,0,0,0)', # Transparent background
+                        paper_bgcolor='rgba(0,0,0,0)' # Transparent paper background
+                    )
+                    fig_bar.update_xaxes(showgrid=False) # Hide x-axis grid lines
+                    fig_bar.update_yaxes(showgrid=False) # Hide y-axis grid lines
+            
+                    st.plotly_chart(fig_bar, use_container_width=True, key="category_distribution_plot")
+                else:
+                    st.info("No employee data classified into categories for the distribution chart.")
+            else:
+                st.info("Run the Gemini Model to see the Risk Category Distribution graph here.")
+            # --- End Graph Generation ---
                 
         with col2:
             st.subheader("Pure Stats Model (Coming Soon)")
