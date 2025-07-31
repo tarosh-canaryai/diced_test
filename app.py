@@ -245,7 +245,7 @@ if st.session_state.df_modified is not None:
                 model = get_gemini_model()
                 if model:
                     if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
-                        with st.spinner("Preparing to analyze..."):
+                        with st.spinner("Analyzing..."):
                             per_row_summary_for_report = []
                             st.session_state.gemini_per_row_results = []
 
