@@ -12,8 +12,7 @@ from collections import Counter
 try:
     GEMINI_API_KEY = st.secrets["GEMINI_API_KEY"]
 except KeyError:
-    st.warning("GEMINI_API_KEY not found in Streamlit Secrets. "
-               "Please add it to .streamlit/secrets.toml or set it as an environment variable.")
+    st.warning("GEMINI_API_KEY not found")
     GEMINI_API_KEY = "YOUR_GEMINI_API_KEY_HERE"
 
 GEMINI_MODEL_NAME = "gemini-2.5-flash"
