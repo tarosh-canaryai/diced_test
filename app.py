@@ -20,8 +20,9 @@ GEMINI_MODEL_NAME = "gemini-2.5-flash"
 st.set_page_config(layout="wide", page_title="Attrition & Hiring Risk Analyzer")
 
 st.title("Attrition & Hiring Risk Analyzer")
-st.markdown("### Compare AI Model Outputs Using Your CSV Data")
-st.write("Upload your employee data, apply hypothetical changes, and see how different models classify hiring and attrition risks.")
+# st.markdown("### Compare AI Model Outputs Using Your CSV Data")
+# st.write("Upload your employee data, apply hypothetical changes, and see how different models classify hiring and attrition risks.")
+st.write("Upload your employee data, apply hypothetical changes, and analyze the resulting attrition and retention risks.")
 
 DECISION_TREE_RULEBOOK = """
 Category 7: The Volatile Performer
@@ -191,7 +192,7 @@ with st.container(border=True):
 if st.session_state.df_modified is not None:
     with st.container(border=True):
         st.header("Step 2: Prepare Your Data for Analysis")
-        st.write("Before running the models, you can select which rows to analyze and even modify numerical values to see how different scenarios impact the risk classifications.")
+        st.write("Before running the model, you can select which rows to analyze and even modify numerical values to see how different scenarios impact the risk classifications.")
 
         st.subheader("Select Rows for Model Processing")
         max_rows = len(st.session_state.df_modified)
@@ -226,7 +227,7 @@ if st.session_state.df_modified is not None:
                                             st.session_state.current_row_start_index,
                                             num_rows_to_send)
 
-        st.subheader("Rows being sent to models:")
+        st.subheader("Rows being sent to model:")
         st.dataframe(current_rows_df)
 
         st.subheader("Annotate Numerical Values in CSV")
@@ -295,13 +296,13 @@ if st.session_state.df_modified is not None:
         # col1, col2 = st.columns(2)
 
         # with col1:
-        st.subheader("Gemini Decision Tree Model")
+        st.subheader("Attrition Risk Prediction")
         if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
             st.info("Please set your Gemini API key in `.streamlit/secrets.toml` to enable this model.")
         elif not current_rows_df.empty:
             model = get_gemini_model()
             if model:
-                if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
+                if st.button("Run Model on Selected Rows", key="run_gemini_model"):
                     with st.spinner("Analyzing..."):
                         per_row_summary_for_report = []
                         st.session_state.gemini_per_row_results = []
@@ -429,10 +430,10 @@ if st.session_state.df_modified is not None:
             else:
                 st.warning("Gemini model not initialized. Please check your API key.")
         else:
-            st.info("Upload a CSV and select rows to run the Gemini Model.")
+            st.info("Upload a CSV and select rows to run the Model.")
 
         st.markdown("---")
-        st.subheader("Gemini Model Analysis Results:")
+        st.subheader("Model Analysis Results:")
         st.write("Here are the analysis results, organized for clarity:")
 
 
@@ -440,7 +441,7 @@ if st.session_state.df_modified is not None:
             st.markdown("### 1. Risk Category Distribution Table")
             st.markdown(st.session_state.gemini_overall_report_table)
         else:
-            st.info("Run the Gemini Model to see the Risk Category Distribution Table here.")
+            st.info("Run the Model to see the Risk Category Distribution Table here.")
 
 
         st.markdown("---") 
@@ -448,7 +449,7 @@ if st.session_state.df_modified is not None:
         if st.session_state.gemini_per_row_results:
             
             st.subheader("Risk Category Distribution (Visual)")
-            st.write("This chart shows the number of employees falling into each risk category based on the Gemini Model's classification.")
+            st.write("This chart shows the number of employees falling into each risk category based on the Model's classification.")
             
             category_counts = Counter()
             for item_data in st.session_state.gemini_per_row_results:
@@ -580,7 +581,7 @@ if st.session_state.df_modified is not None:
             else:
                 st.info("No estimated termination tenure data to display for this selection.")
         else:
-            st.info("Run the Gemini Model to see the risk distribution and tenure graphs here.")
+            st.info("Run the Model to see the risk distribution and tenure graphs here.")
 
         st.markdown("---") 
 
@@ -671,7 +672,7 @@ if st.session_state.df_modified is not None:
                         else:
                             st.info("Score profile not available for this employee (missing required score attributes).")
         else:
-            st.info("Run the Gemini Model to see the Per-Row Analysis Details here.")
+            st.info("Run the Model to see the Per-Row Analysis Details here.")
         
         st.markdown("---")
 
@@ -735,4 +736,5 @@ if st.session_state.df_modified is not None:
 
 else:
     st.info("Please upload a CSV file to begin.")
+
 
