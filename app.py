@@ -291,447 +291,448 @@ if st.session_state.df_modified is not None:
 
     with st.container(border=True):
         st.header("Step 3: Run Model Analysis & Review Results") 
-        st.write("Execute the chosen models to classify your employee data and then review their respective outputs side-by-side for comparison.")
-        col1, col2 = st.columns(2)
+        # st.write("Execute the chosen models to classify your employee data and then review their respective outputs side-by-side for comparison.")
+        # col1, col2 = st.columns(2)
 
-        with col1:
-            st.subheader("Gemini Decision Tree Model")
-            if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
-                st.info("Please set your Gemini API key in `.streamlit/secrets.toml` to enable this model.")
-            elif not current_rows_df.empty:
-                model = get_gemini_model()
-                if model:
-                    if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
-                        with st.spinner("Analyzing..."):
-                            per_row_summary_for_report = []
-                            st.session_state.gemini_per_row_results = []
-                            st.session_state.gemini_overall_report_table = "" # Will store the markdown table
-                            st.session_state.gemini_detailed_report_sections = "" # Will store the rest of the report
+        # with col1:
+        st.subheader("Gemini Decision Tree Model")
+        if GEMINI_API_KEY == "YOUR_GEMINI_API_KEY_HERE":
+            st.info("Please set your Gemini API key in `.streamlit/secrets.toml` to enable this model.")
+        elif not current_rows_df.empty:
+            model = get_gemini_model()
+            if model:
+                if st.button("Run Gemini Model on Selected Rows", key="run_gemini_model"):
+                    with st.spinner("Analyzing..."):
+                        per_row_summary_for_report = []
+                        st.session_state.gemini_per_row_results = []
+                        st.session_state.gemini_overall_report_table = "" # Will store the markdown table
+                        st.session_state.gemini_detailed_report_sections = "" # Will store the rest of the report
 
-                            total_rows_to_process = len(current_rows_df)
-                            status_placeholder = st.empty()
+                        total_rows_to_process = len(current_rows_df)
+                        status_placeholder = st.empty()
 
-                            # --- 1. First Gemini Call: Per-row analysis ---
-                            for idx, (_, row) in enumerate(current_rows_df.iterrows()):
-                                current_processing_index = idx + 1
-                                status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
+                        # --- 1. First Gemini Call: Per-row analysis ---
+                        for idx, (_, row) in enumerate(current_rows_df.iterrows()):
+                            current_processing_index = idx + 1
+                            status_placeholder.info(f"Analyzing row {current_processing_index} of {total_rows_to_process}...")
 
-                                row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
-                                original_scores = {}
-                                for col in SCORE_COLUMNS_FOR_PLOT:
-                                    if col in row:
-                                        value = row[col]
-                                        numeric_value = pd.to_numeric(value, errors='coerce')
-                                        if pd.notna(numeric_value):
-                                            original_scores[col] = numeric_value
-                                        
-                                per_row_instruction_prompt = f"""
-                                Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
+                            row_csv_string = pd.DataFrame([row]).to_csv(index=False, header=True)
+                            original_scores = {}
+                            for col in SCORE_COLUMNS_FOR_PLOT:
+                                if col in row:
+                                    value = row[col]
+                                    numeric_value = pd.to_numeric(value, errors='coerce')
+                                    if pd.notna(numeric_value):
+                                        original_scores[col] = numeric_value
+                                    
+                            per_row_instruction_prompt = f"""
+                            Your entire response for this row MUST be a single JSON object. Do NOT include any additional text, markdown formatting (like ```json), or conversation outside of the JSON object itself.
 
-                                Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
-                                analyze this single row of CSV data.
-                                Determine the exact "category" (e.g., "Category 7: The Volatile Performer")
-                                that the employee falls into, applying the rules hierarchically from Category 7 down to 0.
-                                
-                                Then, provide a concise, one-line explanation *why* that specific category was assigned,
-                                explicitly referencing the *employee's specific numerical values* from the provided CSV data
-                                that met the rulebook's criteria.
-                                
-                                Additionally, extract the `Risk Level` and `Estimated Tenure if Terminated` directly from the assigned category's description in the rulebook.
+                            Using the "Definitive Attrition & Hiring Risk Model" rulebook provided below,
+                            analyze this single row of CSV data.
+                            Determine the exact "category" (e.g., "Category 7: The Volatile Performer")
+                            that the employee falls into, applying the rules hierarchically from Category 7 down to 0.
+                            
+                            Then, provide a concise, one-line explanation *why* that specific category was assigned,
+                            explicitly referencing the *employee's specific numerical values* from the provided CSV data
+                            that met the rulebook's criteria.
+                            
+                            Additionally, extract the `Risk Level` and `Estimated Tenure if Terminated` directly from the assigned category's description in the rulebook.
 
-                                --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
-                                {DECISION_TREE_RULEBOOK}
-                                --- End of Rulebook ---
+                            --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+                            {DECISION_TREE_RULEBOOK}
+                            --- End of Rulebook ---
 
-                                --- Employee Data (CSV) ---
-                                {row_csv_string}
-                                --- End of Employee Data ---
+                            --- Employee Data (CSV) ---
+                            {row_csv_string}
+                            --- End of Employee Data ---
 
-                                The JSON object must have the following keys:
-                                `row_id`: The original row identifier (e.g., "Row {row.name}")
-                                `category_name`: The full category name (e.g., "Category 7: The Volatile Performer")
-                                `risk_level`: The risk level from the rulebook for that category (e.g., "Highest Risk")
-                                `estimated_tenure`: The estimated tenure from the rulebook for that category (e.g., "1 - 5 Months")
-                                `explanation`: A concise, one/two-line explanation why this category was assigned.
+                            The JSON object must have the following keys:
+                            `row_id`: The original row identifier (e.g., "Row {row.name}")
+                            `category_name`: The full category name (e.g., "Category 7: The Volatile Performer")
+                            `risk_level`: The risk level from the rulebook for that category (e.g., "Highest Risk")
+                            `estimated_tenure`: The estimated tenure from the rulebook for that category (e.g., "1 - 5 Months")
+                            `explanation`: A concise, one/two-line explanation why this category was assigned.
 
-                                Example JSON Output for Row 1:
-                                {{
-                                    "row_id": "Row 1",
-                                    "category_name": "Category 4: The Burnout Risk",
-                                    "risk_level": "Elevated",
-                                    "estimated_tenure": "1 - 4 Months",
-                                    "explanation": "This employee has a Conscientious score of 85 and Achievement of 95, but a Work Ethic/Duty score of 10, indicating high ambition but low diligence, fitting the Burnout Risk profile."
-                                }}
-                                """
-                                
+                            Example JSON Output for Row 1:
+                            {{
+                                "row_id": "Row 1",
+                                "category_name": "Category 4: The Burnout Risk",
+                                "risk_level": "Elevated",
+                                "estimated_tenure": "1 - 4 Months",
+                                "explanation": "This employee has a Conscientious score of 85 and Achievement of 95, but a Work Ethic/Duty score of 10, indicating high ambition but low diligence, fitting the Burnout Risk profile."
+                            }}
+                            """
+                            
+                            try:
+                                response = model.generate_content(per_row_instruction_prompt)
+                                raw_response_text = response.text.strip() 
+
+                                json_analysis = {}
                                 try:
-                                    response = model.generate_content(per_row_instruction_prompt)
-                                    raw_response_text = response.text.strip() 
+                                    json_analysis = json.loads(raw_response_text)
+                                except json.JSONDecodeError:
+                                    json_match = re.search(r"```json\s*(\{.*\})\s*```", raw_response_text, re.DOTALL)
+                                    if json_match:
+                                        json_string = json_match.group(1)
+                                        json_analysis = json.loads(json_string)
+                                    else:
+                                        raise json.JSONDecodeError("No valid JSON found in response.", raw_response_text, 0)
 
-                                    json_analysis = {}
-                                    try:
-                                        json_analysis = json.loads(raw_response_text)
-                                    except json.JSONDecodeError:
-                                        json_match = re.search(r"```json\s*(\{.*\})\s*```", raw_response_text, re.DOTALL)
-                                        if json_match:
-                                            json_string = json_match.group(1)
-                                            json_analysis = json.loads(json_string)
-                                        else:
-                                            raise json.JSONDecodeError("No valid JSON found in response.", raw_response_text, 0)
+                                st.session_state.gemini_per_row_results.append({
+                                    "gemini_output": json_analysis,
+                                    "original_row_data": original_scores
+                                })
+                                per_row_summary_for_report.append(json.dumps(json_analysis))
+                                st.session_state.per_row_summary_for_report_state = per_row_summary_for_report
 
-                                    st.session_state.gemini_per_row_results.append({
-                                        "gemini_output": json_analysis,
-                                        "original_row_data": original_scores
-                                    })
-                                    per_row_summary_for_report.append(json.dumps(json_analysis))
-                                    st.session_state.per_row_summary_for_report_state = per_row_summary_for_report
+                            except json.JSONDecodeError as e:
+                                st.error(f"Error decoding JSON for row {row.name}: {e}\nRaw response: {raw_response_text}")
+                                st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"}, "original_row_data": original_scores})
+                                per_row_summary_for_report.append(f"Error for Row {row.name}: JSON decode error")
+                            except Exception as e:
+                                st.error(f"Error processing row {row.name} with Gemini: {e}")
+                                st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"General error: {e}"}, "original_row_data": original_scores})
+                                per_row_summary_for_report.append(f"Error for Row {row.name}: General error")
 
-                                except json.JSONDecodeError as e:
-                                    st.error(f"Error decoding JSON for row {row.name}: {e}\nRaw response: {raw_response_text}")
-                                    st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"JSON decode error: {e}"}, "original_row_data": original_scores})
-                                    per_row_summary_for_report.append(f"Error for Row {row.name}: JSON decode error")
-                                except Exception as e:
-                                    st.error(f"Error processing row {row.name} with Gemini: {e}")
-                                    st.session_state.gemini_per_row_results.append({"gemini_output": {"row_id": f"Row {row.name}", "error": f"General error: {e}"}, "original_row_data": original_scores})
-                                    per_row_summary_for_report.append(f"Error for Row {row.name}: General error")
+                        status_placeholder.empty()
 
+                        if per_row_summary_for_report:
+                            # --- 2. Second Gemini Call: Generate only the Risk Category Distribution Table ---
+                            status_placeholder.info("Generating Risk Category Distribution Table...")
+                            table_generation_prompt = f"""
+                            Generate *only* the markdown table for "1. Risk Category Distribution".
+                            This table should have columns: 'Category', 'Risk Level', 'Description', and 'Count'.
+                            Ensure all categories mentioned in the rulebook are listed, even if their count is zero.
+
+                            --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+                            {DECISION_TREE_RULEBOOK}
+                            --- End of Rulebook ---
+
+                            --- Per-Row Classification Results (JSON list) ---
+                            {st.session_state.per_row_summary_for_report_state}
+                            --- End of Per-Row Classification Results ---
+
+                            Your response MUST be *only* the markdown table. Do not include any other text, titles, or formatting outside the table itself.
+                            """
+                            try:
+                                table_response = model.generate_content(table_generation_prompt)
+                                st.session_state.gemini_overall_report_table = table_response.text.strip()
+                                status_placeholder.success("Analysis complete! Results are ready below.")
+                            except Exception as e:
+                                st.error(f"Error generating category distribution table: {e}")
+                                st.session_state.gemini_overall_report_table = "Error generating table."
+                                status_placeholder.error("Analysis complete with errors.")
+                        else:
+                            st.warning("No individual row results to generate any reports.")
                             status_placeholder.empty()
+            else:
+                st.warning("Gemini model not initialized. Please check your API key.")
+        else:
+            st.info("Upload a CSV and select rows to run the Gemini Model.")
 
-                            if per_row_summary_for_report:
-                                # --- 2. Second Gemini Call: Generate only the Risk Category Distribution Table ---
-                                status_placeholder.info("Generating Risk Category Distribution Table...")
-                                table_generation_prompt = f"""
-                                Generate *only* the markdown table for "1. Risk Category Distribution".
-                                This table should have columns: 'Category', 'Risk Level', 'Description', and 'Count'.
-                                Ensure all categories mentioned in the rulebook are listed, even if their count is zero.
+        st.markdown("---")
+        st.subheader("Gemini Model Analysis Results:")
+        st.write("Here are the analysis results, organized for clarity:")
 
-                                --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
-                                {DECISION_TREE_RULEBOOK}
-                                --- End of Rulebook ---
 
-                                --- Per-Row Classification Results (JSON list) ---
-                                {st.session_state.per_row_summary_for_report_state}
-                                --- End of Per-Row Classification Results ---
+        if st.session_state.gemini_overall_report_table:
+            st.markdown("### 1. Risk Category Distribution Table")
+            st.markdown(st.session_state.gemini_overall_report_table)
+        else:
+            st.info("Run the Gemini Model to see the Risk Category Distribution Table here.")
 
-                                Your response MUST be *only* the markdown table. Do not include any other text, titles, or formatting outside the table itself.
-                                """
-                                try:
-                                    table_response = model.generate_content(table_generation_prompt)
-                                    st.session_state.gemini_overall_report_table = table_response.text.strip()
-                                    status_placeholder.success("Analysis complete! Results are ready below.")
-                                except Exception as e:
-                                    st.error(f"Error generating category distribution table: {e}")
-                                    st.session_state.gemini_overall_report_table = "Error generating table."
-                                    status_placeholder.error("Analysis complete with errors.")
-                            else:
-                                st.warning("No individual row results to generate any reports.")
-                                status_placeholder.empty()
+
+        st.markdown("---") 
+
+        if st.session_state.gemini_per_row_results:
+            
+            st.subheader("Risk Category Distribution (Visual)")
+            st.write("This chart shows the number of employees falling into each risk category based on the Gemini Model's classification.")
+            
+            category_counts = Counter()
+            for item_data in st.session_state.gemini_per_row_results:
+                gemini_output = item_data.get('gemini_output', {})
+                category_name = gemini_output.get('category_name')
+                if category_name:
+                    category_counts[category_name] += 1
                 else:
-                    st.warning("Gemini model not initialized. Please check your API key.")
+                    category_counts["Error/Missing Category"] += 1
+            
+            df_category_distribution = pd.DataFrame(category_counts.items(), columns=['Category', 'Count'])
+            
+            category_risk_mapping = {}
+            for item_data in st.session_state.gemini_per_row_results:
+                gemini_output = item_data.get('gemini_output', {})
+                category = gemini_output.get('category_name')
+                risk_level = gemini_output.get('risk_level')
+                if category and risk_level:
+                    category_risk_mapping[category] = risk_level
+            
+            df_category_distribution['Risk_Level'] = df_category_distribution['Category'].map(category_risk_mapping).fillna("N/A")
+            
+            full_categories = pd.DataFrame({'Category': category_order}) 
+            df_category_distribution = pd.merge(full_categories, df_category_distribution, on='Category', how='left').fillna({'Count': 0, 'Risk_Level': 'N/A'})
+            
+            df_category_distribution['Category'] = pd.Categorical(
+                df_category_distribution['Category'],
+                categories=category_order,
+                ordered=True
+            )
+            df_category_distribution = df_category_distribution.sort_values('Category', ascending=False) 
+            
+            if df_category_distribution['Count'].sum() > 0: 
+                fig_bar = px.bar(
+                    df_category_distribution,
+                    x='Count',
+                    y='Category',
+                    title='Number of Employees Per Risk Category',
+                    color='Risk_Level', 
+                    color_discrete_map=risk_color_map, 
+                    orientation='h', 
+                    text='Count',
+                    labels={'Category': 'Risk Category', 'Count': 'Number of Employees'}
+                )
+                fig_bar.update_traces(textposition='outside')
+                fig_bar.update_layout(
+                    showlegend=True,
+                    yaxis={'categoryorder':'array', 'categoryarray':list(df_category_distribution['Category'].astype(str))},
+                    xaxis_title="Number of Employees",
+                    margin=dict(l=0, r=0, t=40, b=0), 
+                    plot_bgcolor='rgba(0,0,0,0)', 
+                    paper_bgcolor='rgba(0,0,0,0)' 
+                )
+                fig_bar.update_xaxes(showgrid=False) 
+                fig_bar.update_yaxes(showgrid=False) 
+                
+                st.plotly_chart(fig_bar, use_container_width=True, key="category_distribution_plot")
             else:
-                st.info("Upload a CSV and select rows to run the Gemini Model.")
-
-            st.markdown("---")
-            st.subheader("Gemini Model Analysis Results:")
-            st.write("Here are the analysis results, organized for clarity:")
-
-
-            if st.session_state.gemini_overall_report_table:
-                st.markdown("### 1. Risk Category Distribution Table")
-                st.markdown(st.session_state.gemini_overall_report_table)
-            else:
-                st.info("Run the Gemini Model to see the Risk Category Distribution Table here.")
-
+                st.info("No employee data classified into categories for the distribution chart.")
 
             st.markdown("---") 
+            st.subheader("Estimated Termination Tenure Distribution (Visual)")
+            st.write("This chart visualizes the predicted tenure ranges for employees flagged with attrition risk. Overlapping bars indicate multiple groups of employees sharing similar termination timeframes.")
 
-            if st.session_state.gemini_per_row_results:
+            tenure_data = []
+            for item_data in st.session_state.gemini_per_row_results:
+                gemini_output = item_data.get('gemini_output', {})
+                category_name = gemini_output.get('category_name')
+                estimated_tenure = gemini_output.get('estimated_tenure')
                 
-                st.subheader("Risk Category Distribution (Visual)")
-                st.write("This chart shows the number of employees falling into each risk category based on the Gemini Model's classification.")
+                if estimated_tenure and "N/A" not in estimated_tenure and "Category 0" not in category_name:
+                    match = re.search(r"(\d+)\s*-\s*(\d+)\s*Months", estimated_tenure)
+                    if match:
+                        min_months = int(match.group(1))
+                        max_months = int(match.group(2))
+                        tenure_data.append({
+                            'Category': category_name,
+                            'MinMonth': min_months,
+                            'MaxMonth': max_months,
+                            'Range': estimated_tenure
+                        })
+            
+            if tenure_data:
+                df_tenure_ranges = pd.DataFrame(tenure_data)
+                df_tenure_counts = df_tenure_ranges.groupby(['Range', 'MinMonth', 'MaxMonth', 'Category']).size().reset_index(name='Count')
                 
-                category_counts = Counter()
-                for item_data in st.session_state.gemini_per_row_results:
-                    gemini_output = item_data.get('gemini_output', {})
-                    category_name = gemini_output.get('category_name')
-                    if category_name:
-                        category_counts[category_name] += 1
-                    else:
-                        category_counts["Error/Missing Category"] += 1
-                
-                df_category_distribution = pd.DataFrame(category_counts.items(), columns=['Category', 'Count'])
-                
-                category_risk_mapping = {}
-                for item_data in st.session_state.gemini_per_row_results:
-                    gemini_output = item_data.get('gemini_output', {})
-                    category = gemini_output.get('category_name')
-                    risk_level = gemini_output.get('risk_level')
-                    if category and risk_level:
-                        category_risk_mapping[category] = risk_level
-                
-                df_category_distribution['Risk_Level'] = df_category_distribution['Category'].map(category_risk_mapping).fillna("N/A")
-                
-                full_categories = pd.DataFrame({'Category': category_order}) 
-                df_category_distribution = pd.merge(full_categories, df_category_distribution, on='Category', how='left').fillna({'Count': 0, 'Risk_Level': 'N/A'})
-                
-                df_category_distribution['Category'] = pd.Categorical(
-                    df_category_distribution['Category'],
-                    categories=category_order,
-                    ordered=True
+                df_tenure_counts = df_tenure_counts.sort_values(by='MinMonth')
+
+                max_x = df_tenure_counts['MaxMonth'].max() if not df_tenure_counts.empty else 12
+                max_x = max(max_x, 12) 
+
+                import plotly.graph_objects as go
+
+                fig_tenure = go.Figure()
+
+                for index, row in df_tenure_counts.iterrows():
+                    fig_tenure.add_trace(go.Bar(
+                        x=[row['MinMonth'] + (row['MaxMonth'] - row['MinMonth']) / 2], 
+                        y=[row['Count']],
+                        width=[row['MaxMonth'] - row['MinMonth']],
+                        name=f"{row['Category']} (Tenure: {row['Range']})", 
+                        marker_color=px.colors.qualitative.Plotly[index % len(px.colors.qualitative.Plotly)], 
+                        opacity=0.6, 
+                        hovertemplate=f"Category: {row['Category']}<br>Tenure Range: {row['Range']}<br>Employees: {row['Count']}<extra></extra>"
+                    ))
+
+                fig_tenure.update_layout(
+                    title_text='Estimated Termination Tenure Distribution',
+                    xaxis_title='Estimated Tenure (Months)',
+                    yaxis_title='Number of Employees',
+                    xaxis_range=[0, max_x + 1], 
+                    barmode='overlay', 
+                    showlegend=True,
+                    legend_title_text='Tenure Ranges',
+                    plot_bgcolor='rgba(0,0,0,0)',
+                    paper_bgcolor='rgba(0,0,0,0)',
+                    legend=dict(
+                        orientation="h", 
+                        yanchor="top",   
+                        y=-0.2,          
+                        xanchor="center", 
+                        x=0.5             
+                    )
                 )
-                df_category_distribution = df_category_distribution.sort_values('Category', ascending=False) 
-                
-                if df_category_distribution['Count'].sum() > 0: 
-                    fig_bar = px.bar(
-                        df_category_distribution,
-                        x='Count',
-                        y='Category',
-                        title='Number of Employees Per Risk Category',
-                        color='Risk_Level', 
-                        color_discrete_map=risk_color_map, 
-                        orientation='h', 
-                        text='Count',
-                        labels={'Category': 'Risk Category', 'Count': 'Number of Employees'}
-                    )
-                    fig_bar.update_traces(textposition='outside')
-                    fig_bar.update_layout(
-                        showlegend=True,
-                        yaxis={'categoryorder':'array', 'categoryarray':list(df_category_distribution['Category'].astype(str))},
-                        xaxis_title="Number of Employees",
-                        margin=dict(l=0, r=0, t=40, b=0), 
-                        plot_bgcolor='rgba(0,0,0,0)', 
-                        paper_bgcolor='rgba(0,0,0,0)' 
-                    )
-                    fig_bar.update_xaxes(showgrid=False) 
-                    fig_bar.update_yaxes(showgrid=False) 
-                    
-                    st.plotly_chart(fig_bar, use_container_width=True, key="category_distribution_plot")
-                else:
-                    st.info("No employee data classified into categories for the distribution chart.")
+                fig_tenure.update_xaxes(showgrid=True, gridcolor='lightgray')
+                fig_tenure.update_yaxes(showgrid=True, gridcolor='lightgray')
 
-                st.markdown("---") 
-                st.subheader("Estimated Termination Tenure Distribution (Visual)")
-                st.write("This chart visualizes the predicted tenure ranges for employees flagged with attrition risk. Overlapping bars indicate multiple groups of employees sharing similar termination timeframes.")
-
-                tenure_data = []
-                for item_data in st.session_state.gemini_per_row_results:
-                    gemini_output = item_data.get('gemini_output', {})
-                    category_name = gemini_output.get('category_name')
-                    estimated_tenure = gemini_output.get('estimated_tenure')
-                    
-                    if estimated_tenure and "N/A" not in estimated_tenure and "Category 0" not in category_name:
-                        match = re.search(r"(\d+)\s*-\s*(\d+)\s*Months", estimated_tenure)
-                        if match:
-                            min_months = int(match.group(1))
-                            max_months = int(match.group(2))
-                            tenure_data.append({
-                                'Category': category_name,
-                                'MinMonth': min_months,
-                                'MaxMonth': max_months,
-                                'Range': estimated_tenure
-                            })
-                
-                if tenure_data:
-                    df_tenure_ranges = pd.DataFrame(tenure_data)
-                    df_tenure_counts = df_tenure_ranges.groupby(['Range', 'MinMonth', 'MaxMonth', 'Category']).size().reset_index(name='Count')
-                    
-                    df_tenure_counts = df_tenure_counts.sort_values(by='MinMonth')
-
-                    max_x = df_tenure_counts['MaxMonth'].max() if not df_tenure_counts.empty else 12
-                    max_x = max(max_x, 12) 
-
-                    import plotly.graph_objects as go
-
-                    fig_tenure = go.Figure()
-
-                    for index, row in df_tenure_counts.iterrows():
-                        fig_tenure.add_trace(go.Bar(
-                            x=[row['MinMonth'] + (row['MaxMonth'] - row['MinMonth']) / 2], 
-                            y=[row['Count']],
-                            width=[row['MaxMonth'] - row['MinMonth']],
-                            name=f"{row['Category']} (Tenure: {row['Range']})", 
-                            marker_color=px.colors.qualitative.Plotly[index % len(px.colors.qualitative.Plotly)], 
-                            opacity=0.6, 
-                            hovertemplate=f"Category: {row['Category']}<br>Tenure Range: {row['Range']}<br>Employees: {row['Count']}<extra></extra>"
-                        ))
-
-                    fig_tenure.update_layout(
-                        title_text='Estimated Termination Tenure Distribution',
-                        xaxis_title='Estimated Tenure (Months)',
-                        yaxis_title='Number of Employees',
-                        xaxis_range=[0, max_x + 1], 
-                        barmode='overlay', 
-                        showlegend=True,
-                        legend_title_text='Tenure Ranges',
-                        plot_bgcolor='rgba(0,0,0,0)',
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        legend=dict(
-                            orientation="h", 
-                            yanchor="top",   
-                            y=-0.2,          
-                            xanchor="center", 
-                            x=0.5             
-                        )
-                    )
-                    fig_tenure.update_xaxes(showgrid=True, gridcolor='lightgray')
-                    fig_tenure.update_yaxes(showgrid=True, gridcolor='lightgray')
-
-                    st.plotly_chart(fig_tenure, use_container_width=True, key="tenure_distribution_plot")
-                else:
-                    st.info("No estimated termination tenure data to display for this selection.")
+                st.plotly_chart(fig_tenure, use_container_width=True, key="tenure_distribution_plot")
             else:
-                st.info("Run the Gemini Model to see the risk distribution and tenure graphs here.")
+                st.info("No estimated termination tenure data to display for this selection.")
+        else:
+            st.info("Run the Gemini Model to see the risk distribution and tenure graphs here.")
 
-            st.markdown("---") 
+        st.markdown("---") 
 
-            if st.session_state.gemini_per_row_results:
-                st.subheader("Per-Row Analysis Details:")
+        if st.session_state.gemini_per_row_results:
+            st.subheader("Per-Row Analysis Details:")
 
-                all_categories = sorted(list(set(
-                    item_data.get('gemini_output', {}).get('category_name')
-                    for item_data in st.session_state.gemini_per_row_results
-                    if item_data.get('gemini_output', {}).get('category_name') is not None
-                )))
+            all_categories = sorted(list(set(
+                item_data.get('gemini_output', {}).get('category_name')
+                for item_data in st.session_state.gemini_per_row_results
+                if item_data.get('gemini_output', {}).get('category_name') is not None
+            )))
 
-                selected_categories = st.multiselect(
-                    "Filter by Risk Category:",
-                    options=all_categories,
-                    default=[], 
-                    help="Select categories to display their detailed analysis."
-                )
+            selected_categories = st.multiselect(
+                "Filter by Risk Category:",
+                options=all_categories,
+                default=[], 
+                help="Select categories to display their detailed analysis."
+            )
 
-                if not selected_categories: 
-                    categories_to_display = all_categories 
-                else:
-                    categories_to_display = selected_categories 
+            if not selected_categories: 
+                categories_to_display = all_categories 
+            else:
+                categories_to_display = selected_categories 
 
-                with st.container(height=600, border=True):
-                    filtered_results = [
-                        item_data for item_data in st.session_state.gemini_per_row_results
-                        if item_data.get('gemini_output', {}).get('category_name') in categories_to_display
-                    ]
+            with st.container(height=600, border=True):
+                filtered_results = [
+                    item_data for item_data in st.session_state.gemini_per_row_results
+                    if item_data.get('gemini_output', {}).get('category_name') in categories_to_display
+                ]
 
-                    for idx, item_data in enumerate(filtered_results):
-                        original_index_in_full_list = st.session_state.gemini_per_row_results.index(item_data)
-                        display_row_index = st.session_state.current_row_start_index + original_index_in_full_list
+                for idx, item_data in enumerate(filtered_results):
+                    original_index_in_full_list = st.session_state.gemini_per_row_results.index(item_data)
+                    display_row_index = st.session_state.current_row_start_index + original_index_in_full_list
+                    
+                    gemini_output = item_data.get('gemini_output', {})
+                    original_row_data = item_data.get('original_row_data', {})
+
+                    category_name = gemini_output.get('category_name', 'N/A Category')
+                    explanation = gemini_output.get('explanation', 'No explanation provided.')
+                    
+                    expander_title_suffix = category_name
+                    display_content = f"**Risk Level:** {gemini_output.get('risk_level', 'N/A')}\n\n" \
+                                    f"**Estimated Tenure if Terminated:** {gemini_output.get('estimated_tenure', 'N/A')}\n\n" \
+                                    f"**Explanation:** {explanation}"
+
+                    with st.expander(f"Row {display_row_index}: {expander_title_suffix}"):
+                        st.markdown(display_content)
                         
-                        gemini_output = item_data.get('gemini_output', {})
-                        original_row_data = item_data.get('original_row_data', {})
-
-                        category_name = gemini_output.get('category_name', 'N/A Category')
-                        explanation = gemini_output.get('explanation', 'No explanation provided.')
+                        all_scores_present = all(col in original_row_data for col in SCORE_COLUMNS_FOR_PLOT)
                         
-                        expander_title_suffix = category_name
-                        display_content = f"**Risk Level:** {gemini_output.get('risk_level', 'N/A')}\n\n" \
-                                        f"**Estimated Tenure if Terminated:** {gemini_output.get('estimated_tenure', 'N/A')}\n\n" \
-                                        f"**Explanation:** {explanation}"
-
-                        with st.expander(f"Row {display_row_index}: {expander_title_suffix}"):
-                            st.markdown(display_content)
+                        if all_scores_present and original_row_data:
+                            st.markdown("---") 
+                            st.markdown("**Individual Score Profile:**")
                             
-                            all_scores_present = all(col in original_row_data for col in SCORE_COLUMNS_FOR_PLOT)
+                            plot_data_for_row = []
+                            for attr in SCORE_COLUMNS_FOR_PLOT:
+                                if attr in original_row_data: 
+                                    numeric_value = pd.to_numeric(original_row_data[attr], errors='coerce')
+                                    if pd.notna(numeric_value):
+                                        plot_data_for_row.append({'Attribute': attr, 'Value': numeric_value})
                             
-                            if all_scores_present and original_row_data:
-                                st.markdown("---") 
-                                st.markdown("**Individual Score Profile:**")
+                            if plot_data_for_row: 
+                                plot_df = pd.DataFrame(plot_data_for_row)
                                 
-                                plot_data_for_row = []
-                                for attr in SCORE_COLUMNS_FOR_PLOT:
-                                    if attr in original_row_data: 
-                                        numeric_value = pd.to_numeric(original_row_data[attr], errors='coerce')
-                                        if pd.notna(numeric_value):
-                                            plot_data_for_row.append({'Attribute': attr, 'Value': numeric_value})
+                                fig_scores = px.bar(
+                                    plot_df,
+                                    x='Value',
+                                    y='Attribute',
+                                    orientation='h',
+                                    labels={'Value': 'Score Value', 'Attribute': 'Attribute'},
+                                    height=300, 
+                                    range_x=[0, 100],
+                                    color='Value', 
+                                    color_continuous_scale=px.colors.sequential.Plasma 
+                                )
+                                fig_scores.update_layout(
+                                    showlegend=False, 
+                                    margin=dict(l=0, r=0, t=0, b=0), 
+                                    plot_bgcolor='rgba(0,0,0,0)',
+                                    paper_bgcolor='rgba(0,0,0,0)' 
+                                )
+                                fig_scores.update_xaxes(showgrid=False) 
+                                fig_scores.update_yaxes(showgrid=False, categoryorder='total ascending') 
                                 
-                                if plot_data_for_row: 
-                                    plot_df = pd.DataFrame(plot_data_for_row)
-                                    
-                                    fig_scores = px.bar(
-                                        plot_df,
-                                        x='Value',
-                                        y='Attribute',
-                                        orientation='h',
-                                        labels={'Value': 'Score Value', 'Attribute': 'Attribute'},
-                                        height=300, 
-                                        range_x=[0, 100],
-                                        color='Value', 
-                                        color_continuous_scale=px.colors.sequential.Plasma 
-                                    )
-                                    fig_scores.update_layout(
-                                        showlegend=False, 
-                                        margin=dict(l=0, r=0, t=0, b=0), 
-                                        plot_bgcolor='rgba(0,0,0,0)',
-                                        paper_bgcolor='rgba(0,0,0,0)' 
-                                    )
-                                    fig_scores.update_xaxes(showgrid=False) 
-                                    fig_scores.update_yaxes(showgrid=False, categoryorder='total ascending') 
-                                    
-                                    st.plotly_chart(fig_scores, use_container_width=True, key=f"score_plot_{display_row_index}")
-                                else:
-                                    st.info("No numerical score data found for plotting in this employee's row.")
+                                st.plotly_chart(fig_scores, use_container_width=True, key=f"score_plot_{display_row_index}")
                             else:
-                                st.info("Score profile not available for this employee (missing required score attributes).")
-            else:
-                st.info("Run the Gemini Model to see the Per-Row Analysis Details here.")
-            
-            st.markdown("---")
+                                st.info("No numerical score data found for plotting in this employee's row.")
+                        else:
+                            st.info("Score profile not available for this employee (missing required score attributes).")
+        else:
+            st.info("Run the Gemini Model to see the Per-Row Analysis Details here.")
+        
+        st.markdown("---")
 
-            st.subheader("Comprehensive Analysis Report (Detailed Sections)")
-            st.write("Click the button below to generate a detailed textual analysis report. This can be extensive.")
+        st.subheader("Comprehensive Analysis Report (Detailed Sections)")
+        st.write("Click the button below to generate a detailed textual analysis report. This can be extensive.")
 
-            if st.button("Generate Detailed Report", key="generate_detailed_report"):
-                if st.session_state.gemini_detailed_report_sections:
-                    st.info("Detailed report already generated. Displaying...")
-                else:
-                    with st.spinner("Generating detailed report sections... This might take a moment."):
-                        full_report_sections_prompt = f"""
-                        Generate the following sections of the comprehensive analysis report as a single markdown string.
-                        Include proper markdown headers (###) for each section.
-
-                        --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
-                        {DECISION_TREE_RULEBOOK}
-                        --- End of Rulebook ---
-
-                        --- Per-Row Classification Results (JSON list) ---
-                        {st.session_state.per_row_summary_for_report_state}
-                        --- End of Per-Row Classification Results ---
-
-                        **Sections to generate:**
-
-                        ### 2. Key Risk Profiles Identified
-                        Identify the 2-3 most impactful (highest risk or most prevalent) categories found. For each, briefly state its Category Name, Count, and *synthesize* its direct implications for hiring/retention based on the rulebook's Profile Description and Actionable Insight. Do NOT copy the full descriptions.
-
-                        ### 3. Noteworthy Patterns & Observations
-                        Summarize any significant trends, anomalies, or strong drivers for classifications observed in *this specific dataset*. Use concise bullet points.
-
-                        ### 4. Strategic Recommendations
-                        Provide clear, specific, and actionable recommendations for HR and hiring, directly derived from the analysis. Emphasize how to leverage or mitigate these risks.
-
-                        ### 5. Model Sensitivity & Causal Impact
-                        Explain the model's sensitivity to score changes. Provide 2-3 *brief, illustrative examples* of how a small change in a key metric (e.g., 'Manipulative', 'Integrity', 'Work Ethic/Duty') can cause a significant shift between categories, referencing the rulebook's criteria *conceptually* rather than listing full rules. Focus on the *impact* of such changes.
-
-                        ### 6. Conclusion
-                        A brief, impactful summary of the report's main findings and overall strategic implications.
-                        """
-                        try:
-                            detailed_report_response = model.generate_content(full_report_sections_prompt)
-                            st.session_state.gemini_detailed_report_sections = detailed_report_response.text.strip()
-                            st.success("Detailed report generated.")
-                        except Exception as e:
-                            st.error(f"Error generating detailed report sections: {e}")
-                            st.session_state.gemini_detailed_report_sections = "Error generating detailed report."
-            
+        if st.button("Generate Detailed Report", key="generate_detailed_report"):
             if st.session_state.gemini_detailed_report_sections:
-                st.markdown(st.session_state.gemini_detailed_report_sections)
-                if st.button("Hide Detailed Report", key="hide_detailed_report"):
-                    st.session_state.gemini_detailed_report_sections = ""
-                    st.rerun() 
+                st.info("Detailed report already generated. Displaying...")
+            else:
+                with st.spinner("Generating detailed report sections... This might take a moment."):
+                    full_report_sections_prompt = f"""
+                    Generate the following sections of the comprehensive analysis report as a single markdown string.
+                    Include proper markdown headers (###) for each section.
 
-        with col2:
-            st.subheader("Pure Stats Model (Coming Soon)")
-            st.info("This section will feature an advanced Machine Learning model for comparison, offering insights based on statistical patterns and predictive analytics.")
-            st.markdown("---") 
-            st.subheader("Pure Stats Model Analysis Results:") 
-            st.write("Results from the Pure Stats Model will be displayed here for side-by-side comparison with the Gemini Model's output.")
+                    --- Definitive Attrition & Hiring Risk Model (Rulebook) ---
+                    {DECISION_TREE_RULEBOOK}
+                    --- End of Rulebook ---
+
+                    --- Per-Row Classification Results (JSON list) ---
+                    {st.session_state.per_row_summary_for_report_state}
+                    --- End of Per-Row Classification Results ---
+
+                    **Sections to generate:**
+
+                    ### 2. Key Risk Profiles Identified
+                    Identify the 2-3 most impactful (highest risk or most prevalent) categories found. For each, briefly state its Category Name, Count, and *synthesize* its direct implications for hiring/retention based on the rulebook's Profile Description and Actionable Insight. Do NOT copy the full descriptions.
+
+                    ### 3. Noteworthy Patterns & Observations
+                    Summarize any significant trends, anomalies, or strong drivers for classifications observed in *this specific dataset*. Use concise bullet points.
+
+                    ### 4. Strategic Recommendations
+                    Provide clear, specific, and actionable recommendations for HR and hiring, directly derived from the analysis. Emphasize how to leverage or mitigate these risks.
+
+                    ### 5. Model Sensitivity & Causal Impact
+                    Explain the model's sensitivity to score changes. Provide 2-3 *brief, illustrative examples* of how a small change in a key metric (e.g., 'Manipulative', 'Integrity', 'Work Ethic/Duty') can cause a significant shift between categories, referencing the rulebook's criteria *conceptually* rather than listing full rules. Focus on the *impact* of such changes.
+
+                    ### 6. Conclusion
+                    A brief, impactful summary of the report's main findings and overall strategic implications.
+                    """
+                    try:
+                        detailed_report_response = model.generate_content(full_report_sections_prompt)
+                        st.session_state.gemini_detailed_report_sections = detailed_report_response.text.strip()
+                        st.success("Detailed report generated.")
+                    except Exception as e:
+                        st.error(f"Error generating detailed report sections: {e}")
+                        st.session_state.gemini_detailed_report_sections = "Error generating detailed report."
+        
+        if st.session_state.gemini_detailed_report_sections:
+            st.markdown(st.session_state.gemini_detailed_report_sections)
+            if st.button("Hide Detailed Report", key="hide_detailed_report"):
+                st.session_state.gemini_detailed_report_sections = ""
+                st.rerun() 
+
+        # with col2:
+        #     st.subheader("Pure Stats Model (Coming Soon)")
+        #     st.info("This section will feature an advanced Machine Learning model for comparison, offering insights based on statistical patterns and predictive analytics.")
+        #     st.markdown("---") 
+        #     st.subheader("Pure Stats Model Analysis Results:") 
+        #     st.write("Results from the Pure Stats Model will be displayed here for side-by-side comparison with the Gemini Model's output.")
 
 else:
     st.info("Please upload a CSV file to begin.")
+
